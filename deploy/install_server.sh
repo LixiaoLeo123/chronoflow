@@ -75,8 +75,9 @@ systemctl restart chronoflow.service
 if [[ -n "${CHRONOFLOW_ADMIN_USERNAME:-}" ]]; then
   (
     cd "$APP_DIR"
-    CHRONOFLOW_DB="$DATA_DIR/chronoflow.db" \
-    CHRONOFLOW_ADMIN_PASSWORD="${CHRONOFLOW_ADMIN_PASSWORD:-}" \
+    runuser -u "$SERVICE_USER" -- \
+      env CHRONOFLOW_DB="$DATA_DIR/chronoflow.db" \
+          CHRONOFLOW_ADMIN_PASSWORD="${CHRONOFLOW_ADMIN_PASSWORD:-}" \
       "$APP_DIR/venv/bin/python" -m app.cli bootstrap-admin \
         --username "$CHRONOFLOW_ADMIN_USERNAME"
   )
