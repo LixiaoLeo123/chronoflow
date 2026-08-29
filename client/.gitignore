@@ -1,0 +1,9 @@
+.dart_tool/
+.flutter-plugins*
+build/
+generated_plugin_registrant.*
+*.g.dart
+!lib/src/database/app_database.g.dart
+android/.gradle/
+android/local.properties
+linux/flutter/ephemeral/

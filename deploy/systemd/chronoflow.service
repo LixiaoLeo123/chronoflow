@@ -1,0 +1,23 @@
+[Unit]
+Description=Chronoflow sync API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chronoflow
+Group=chronoflow
+WorkingDirectory=/opt/chronoflow
+EnvironmentFile=/opt/chronoflow/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/chronoflow/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9443 --ssl-keyfile /opt/chronoflow/tls/chronoflow.key --ssl-certfile /opt/chronoflow/tls/chronoflow.crt
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/chronoflow/data
+
+[Install]
+WantedBy=multi-user.target

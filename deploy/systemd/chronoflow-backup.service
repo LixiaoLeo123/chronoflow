@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Chronoflow SQLite backup
+
+[Service]
+Type=oneshot
+User=chronoflow
+Group=chronoflow
+WorkingDirectory=/opt/chronoflow
+EnvironmentFile=/opt/chronoflow/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/chronoflow/venv/bin/python /opt/chronoflow/backup.py
