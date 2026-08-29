@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/domain.dart';
-import 'pomodoro_controller.dart';
 import '../../providers.dart';
+import 'pomodoro_controller.dart';
 
 class PomodoroScreen extends ConsumerWidget {
   const PomodoroScreen({super.key});
@@ -14,80 +14,156 @@ class PomodoroScreen extends ConsumerWidget {
     if (account == null) return const SizedBox.shrink();
     final activities =
         ref.watch(activitiesProvider(account.id)).value ?? const <Activity>[];
-    final settings = ref.watch(timerSettingsProvider(account.id)).value;
     final timer = ref.watch(pomodoroProvider(account.id));
     final controller = ref.read(pomodoroProvider(account.id).notifier);
     final active =
         activities.where((item) => !item.deleted && !item.archived).toList();
+    final roundCount = timer.settings.roundsBeforeLongBreak;
+    final currentRound = (timer.phaseIndex % roundCount) + 1;
+
+    final activitySelector = DropdownButtonFormField<String?>(
+      initialValue: timer.activityId,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: 'What are you working on?',
+        prefixIcon: const Icon(Icons.work_outline),
+        helperText: active.isEmpty ? 'Create a thing to get started' : null,
+      ),
+      items: [
+        if (active.isEmpty)
+          const DropdownMenuItem(value: null, child: Text('Choose an activity')),
+        for (final activity in active)
+          DropdownMenuItem(
+            value: activity.id,
+            child: Row(
+              children: [
+                CircleAvatar(
+                    radius: 7, backgroundColor: Color(activity.color)),
+                const SizedBox(width: 8),
+                Expanded(child: Text(activity.name, overflow: TextOverflow.ellipsis)),
+              ],
+            ),
+          ),
+      ],
+      onChanged: active.isEmpty ? null : controller.selectActivity,
+    );
+
+    final controls = Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      alignment: WrapAlignment.center,
+      children: [
+        FilledButton.icon(
+          onPressed: timer.running ? controller.pause : controller.start,
+          icon: Icon(timer.running ? Icons.pause : Icons.play_arrow),
+          label: Text(timer.running ? 'Pause' : 'Start'),
+        ),
+        OutlinedButton.icon(
+          onPressed: controller.stop,
+          icon: const Icon(Icons.stop),
+          label: const Text('Stop'),
+        ),
+      ],
+    );
+
+    final roundSelector = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (var round = 1; round <= roundCount; round++)
+          ChoiceChip(
+            label: Text('Round $round'),
+            selected: round == currentRound && timer.kind == BlockKind.focus,
+            onSelected: timer.running
+                ? null
+                : (_) => controller.selectRound(round),
+          ),
+      ],
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pomodoro')),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 680),
-              child: Column(
-                children: [
-                  DropdownButtonFormField<String?>(
-                    initialValue: timer.activityId,
-                    decoration: const InputDecoration(
-                      labelText: 'What are you working on?',
-                      prefixIcon: Icon(Icons.work_outline),
-                    ),
-                    items: [
-                      const DropdownMenuItem(
-                          value: null, child: Text('Choose an activity')),
-                      for (final activity in active)
-                        DropdownMenuItem(
-                          value: activity.id,
-                          child: Row(children: [
-                            CircleAvatar(
-                                radius: 7,
-                                backgroundColor: Color(activity.color)),
-                            const SizedBox(width: 8),
-                            Text(activity.name),
-                          ]),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final timerView = Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _TimerDial(state: timer),
+                const SizedBox(height: 12),
+                Text(timer.status, style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 20),
+                controls,
+              ],
+            );
+
+            if (constraints.maxWidth >= 900) {
+              return Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 980),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text('Session',
+                                      style: Theme.of(context).textTheme.titleLarge),
+                                  const SizedBox(height: 20),
+                                  activitySelector,
+                                  const SizedBox(height: 24),
+                                  Text('Focus round',
+                                      style: Theme.of(context).textTheme.titleSmall),
+                                  const SizedBox(height: 12),
+                                  roundSelector,
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Round selection is available while the timer is stopped.',
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
-                    ],
-                    onChanged: controller.selectActivity,
-                  ),
-                  const SizedBox(height: 28),
-                  _TimerDial(state: timer),
-                  const SizedBox(height: 12),
-                  Text(timer.status,
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  const SizedBox(height: 20),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      FilledButton.icon(
-                        onPressed:
-                            timer.running ? controller.pause : controller.start,
-                        icon: Icon(
-                            timer.running ? Icons.pause : Icons.play_arrow),
-                        label: Text(timer.running ? 'Pause' : 'Start'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: controller.stop,
-                        icon: const Icon(Icons.stop),
-                        label: const Text('Stop'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  if (settings != null)
-                    _SettingsEditor(
-                      settings: settings,
-                      onChanged: controller.updateSettings,
+                        const SizedBox(width: 24),
+                        Expanded(flex: 4, child: timerView),
+                      ],
                     ),
-                ],
+                  ),
+                ),
+              );
+            }
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      activitySelector,
+                      const SizedBox(height: 24),
+                      Text('Focus round',
+                          style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 12),
+                      roundSelector,
+                      const SizedBox(height: 28),
+                      timerView,
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
@@ -118,8 +194,7 @@ class _TimerDial extends StatelessWidget {
         Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_label(state.kind),
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(_label(state.kind), style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
               _remaining(state.remaining),
@@ -133,91 +208,6 @@ class _TimerDial extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-class _SettingsEditor extends StatelessWidget {
-  const _SettingsEditor({required this.settings, required this.onChanged});
-
-  final TimerSettings settings;
-  final Future<void> Function(TimerSettings) onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Settings', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            _NumberField(
-              label: 'Focus minutes',
-              value: settings.focusMinutes,
-              onChanged: (value) =>
-                  onChanged(settings.copyWith(focusMinutes: value)),
-            ),
-            _NumberField(
-              label: 'Short break minutes',
-              value: settings.shortBreakMinutes,
-              onChanged: (value) =>
-                  onChanged(settings.copyWith(shortBreakMinutes: value)),
-            ),
-            _NumberField(
-              label: 'Long break minutes',
-              value: settings.longBreakMinutes,
-              onChanged: (value) =>
-                  onChanged(settings.copyWith(longBreakMinutes: value)),
-            ),
-            _NumberField(
-              label: 'Focus rounds before long break',
-              value: settings.roundsBeforeLongBreak,
-              onChanged: (value) =>
-                  onChanged(settings.copyWith(roundsBeforeLongBreak: value)),
-            ),
-            SwitchListTile(
-              title: const Text('Auto-start breaks'),
-              value: settings.autoStartBreaks,
-              onChanged: (value) =>
-                  onChanged(settings.copyWith(autoStartBreaks: value)),
-            ),
-            SwitchListTile(
-              title: const Text('Auto-start focus'),
-              value: settings.autoStartFocus,
-              onChanged: (value) =>
-                  onChanged(settings.copyWith(autoStartFocus: value)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NumberField extends StatelessWidget {
-  const _NumberField(
-      {required this.label, required this.value, required this.onChanged});
-
-  final String label;
-  final int value;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = TextEditingController(text: value.toString());
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(labelText: label),
-        onSubmitted: (text) {
-          final parsed = int.tryParse(text);
-          if (parsed != null && parsed > 0) onChanged(parsed);
-        },
-      ),
     );
   }
 }

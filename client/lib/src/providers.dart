@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api/api_client.dart';
 import 'api/auth_api.dart';
 import 'database/app_database.dart';
+import 'features/pomodoro/phase_notifications.dart';
 import 'features/pomodoro/pomodoro_controller.dart';
 import 'repositories/activity_repository.dart';
 import 'repositories/auth_repository.dart';
@@ -73,11 +74,17 @@ final timerSettingsProvider =
     FutureProvider.family<TimerSettings, String>((ref, accountId) {
   return ref.watch(databaseProvider).settingsFor(accountId);
 });
+
+final phaseNotificationsProvider = Provider<PhaseNotifications>(
+  (ref) => PhaseNotifications(),
+);
+
 final pomodoroProvider =
     StateNotifierProvider.family<PomodoroController, PomodoroState, String>(
   (ref, accountId) => PomodoroController(
     accountId: accountId,
     database: ref.watch(databaseProvider),
     blockRepository: ref.watch(blockRepositoryProvider),
+    notifications: ref.watch(phaseNotificationsProvider),
   ),
 );

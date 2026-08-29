@@ -1,6 +1,9 @@
 #include "my_application.h"
 
+#include <limits.h>
 #include <flutter_linux/flutter_linux.h>
+#include <libgen.h>
+#include <unistd.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -14,6 +17,21 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+static void set_default_icon() {
+  char executable[PATH_MAX];
+  if (readlink("/proc/self/exe", executable, sizeof(executable) - 1) < 0) {
+    return;
+  }
+  executable[sizeof(executable) - 1] = '\0';
+  char* executable_copy = strdup(executable);
+  const char* executable_directory = dirname(executable_copy);
+  g_autofree gchar* icon_path = g_build_filename(
+      executable_directory, "data", "flutter_assets", "assets", "icon",
+      "chronoflow.png", nullptr);
+  free(executable_copy);
+  gtk_window_set_default_icon_from_file(icon_path, nullptr);
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -24,6 +42,7 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  set_default_icon();
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -45,11 +64,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "chronoflow");
+    gtk_header_bar_set_title(header_bar, "Chronoflow");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "chronoflow");
+    gtk_window_set_title(window, "Chronoflow");
   }
 
   gtk_window_set_default_size(window, 1280, 720);

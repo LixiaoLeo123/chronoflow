@@ -26,6 +26,8 @@ void callbackDispatcher() {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final container = ProviderContainer();
+  await container.read(phaseNotificationsProvider).initialize();
   if (Platform.isAndroid) {
     await Workmanager().initialize(callbackDispatcher);
     await Workmanager().registerPeriodicTask(
@@ -34,5 +36,5 @@ Future<void> main() async {
       frequency: const Duration(minutes: 15),
     );
   }
-  runApp(const ProviderScope(child: ChronoflowApp()));
+  runApp(UncontrolledProviderScope(container: container, child: const ChronoflowApp()));
 }

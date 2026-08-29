@@ -12,6 +12,7 @@ import '../features/pomodoro/pomodoro_screen.dart';
 import '../features/summary/summary_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../providers.dart';
+import 'session_tray.dart';
 import 'theme.dart';
 
 class ChronoflowApp extends ConsumerWidget {
@@ -86,6 +87,7 @@ class _ChronoflowShell extends ConsumerStatefulWidget {
 class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
   String? _startedAccountId;
   bool _starting = false;
+  final _tray = SessionTrayController();
 
   @override
   void initState() {
@@ -115,30 +117,59 @@ class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
   @override
   Widget build(BuildContext context) {
     ref.listen(selectedAccountProvider, (_, __) => _syncIfReady());
+    final account = ref.watch(selectedAccountProvider).value;
+    if (account != null) {
+      final timer = ref.watch(pomodoroProvider(account.id));
+      unawaited(_tray.update(timer));
+    }
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+    const destinations = [
+      NavigationDestination(icon: Icon(Icons.timer_outlined), label: 'Timer'),
+      NavigationDestination(icon: Icon(Icons.schedule_outlined), label: 'Clock'),
+      NavigationDestination(icon: Icon(Icons.insights_outlined), label: 'Summary'),
+      NavigationDestination(icon: Icon(Icons.category_outlined), label: 'Things'),
+      NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
+    ];
+    final navigation = wide
+        ? NavigationRail(
+            selectedIndex: widget.shell.currentIndex,
+            onDestinationSelected: widget.shell.goBranch,
+            labelType: NavigationRailLabelType.all,
+            leading: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: CircleAvatar(child: Icon(Icons.alarm)),
+            ),
+            destinations: [
+              for (final destination in destinations)
+                NavigationRailDestination(
+                  icon: destination.icon,
+                  selectedIcon: destination.selectedIcon,
+                  label: Text(destination.label),
+                ),
+            ],
+          )
+        : null;
     return Scaffold(
-      body: widget.shell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: widget.shell.currentIndex,
-        onDestinationSelected: widget.shell.goBranch,
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.timer_outlined), label: 'Timer'),
-          NavigationDestination(
-              icon: Icon(Icons.schedule_outlined), label: 'Clock'),
-          NavigationDestination(
-              icon: Icon(Icons.insights_outlined), label: 'Summary'),
-          NavigationDestination(
-              icon: Icon(Icons.category_outlined), label: 'Things'),
-          NavigationDestination(
-              icon: Icon(Icons.settings_outlined), label: 'Settings'),
-        ],
-      ),
+      body: wide
+          ? Row(children: [
+              SizedBox(width: 112, child: navigation),
+              Expanded(child: widget.shell),
+            ])
+          : widget.shell,
+      bottomNavigationBar: navigation == null
+          ? NavigationBar(
+              selectedIndex: widget.shell.currentIndex,
+              onDestinationSelected: widget.shell.goBranch,
+              destinations: destinations,
+            )
+          : null,
     );
   }
 
   @override
   void dispose() {
     unawaited(ref.read(syncCoordinatorProvider).stop());
+    unawaited(_tray.dispose());
     super.dispose();
   }
 }

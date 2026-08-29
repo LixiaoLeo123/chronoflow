@@ -72,6 +72,22 @@ class AuthRepository {
 
   Future<void> select(String accountId) => _database.selectAccount(accountId);
 
+  Future<Map<String, dynamic>> createInvite(
+    String accountId, {
+    int daysValid = 7,
+  }) async {
+    if (!await ensureAccessToken(accountId)) {
+      throw ApiException(0, 'Sign in again to create invitations');
+    }
+    return _authApi.createInvite(daysValid: daysValid);
+  }
+
+  Future<void> logout(String accountId) async {
+    await _sessions.delete(accountId);
+    _client.accessToken = null;
+    await _database.clearSelectedAccount();
+  }
+
   Future<void> forget(String accountId) async {
     await _sessions.delete(accountId);
     await (_database.delete(_database.accounts)

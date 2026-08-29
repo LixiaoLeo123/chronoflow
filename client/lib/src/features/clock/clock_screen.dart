@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/domain.dart';
 import '../../providers.dart';
+import '../pomodoro/pomodoro_controller.dart';
 
 class ClockScreen extends ConsumerStatefulWidget {
   const ClockScreen({super.key});
@@ -26,6 +27,12 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
         (ref.watch(timeBlocksProvider(account.id)).value ?? const <TimeBlock>[])
             .where((block) => !block.deleted)
             .toList();
+    final timer = ref.watch(pomodoroProvider(account.id));
+    final liveBlock = _liveBlock(timer, activities);
+    final displayBlocks = [
+      ...blocks,
+      if (liveBlock != null) liveBlock,
+    ];
     final selected =
         blocks.where((block) => block.id == _selectedId).firstOrNull;
     final activeActivities = activities.where((item) => !item.deleted).toList();
@@ -38,10 +45,10 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
           final timeline = AspectRatio(
             aspectRatio: 1,
             child: GestureDetector(
-              onTapUp: (details) => _selectAt(details.localPosition, blocks),
+              onTapUp: (details) => _selectAt(details.localPosition, displayBlocks),
               child: CustomPaint(
                 painter: _TwoRingClockPainter(
-                    blocks: blocks, activities: activities),
+                    blocks: displayBlocks, activities: activities),
               ),
             ),
           );
@@ -77,6 +84,36 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
           ]);
         },
       ),
+    );
+  }
+
+  TimeBlock? _liveBlock(PomodoroState timer, List<Activity> activities) {
+    final startedAt = timer.startedAt;
+    if (!timer.running || startedAt == null) return null;
+    if (timer.kind == BlockKind.focus &&
+        !activities.any((activity) =>
+            activity.id == timer.activityId &&
+            !activity.deleted &&
+            !activity.archived)) {
+      return null;
+    }
+    final scheduledEnd =
+        startedAt.add(timer.settings.durationFor(timer.kind));
+    final end = scheduledEnd.isAfter(DateTime.now())
+        ? scheduledEnd
+        : DateTime.now();
+    if (!end.isAfter(startedAt)) return null;
+    return TimeBlock(
+      id: 'chronoflow-live-timer',
+      accountId: '',
+      activityId: timer.activityId ?? '',
+      kind: timer.kind,
+      start: startedAt,
+      end: end,
+      status: BlockStatus.active,
+      deleted: false,
+      createdAt: startedAt,
+      updatedAt: DateTime.now(),
     );
   }
 

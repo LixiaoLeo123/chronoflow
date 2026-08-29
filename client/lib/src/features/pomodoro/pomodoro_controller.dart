@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../database/app_database.dart';
 import '../../models/domain.dart';
+import 'phase_notifications.dart';
 import '../../repositories/block_repository.dart';
 
 BlockKind phaseAfterFocus({
@@ -63,6 +64,7 @@ class PomodoroController extends StateNotifier<PomodoroState> {
     required String accountId,
     required AppDatabase database,
     required BlockRepository blockRepository,
+    this.notifications,
   })  : _accountId = accountId,
         _database = database,
         _blocks = blockRepository,
@@ -74,6 +76,7 @@ class PomodoroController extends StateNotifier<PomodoroState> {
   final String _accountId;
   final AppDatabase _database;
   final BlockRepository _blocks;
+  final PhaseNotifications? notifications;
   late Timer _ticker;
   bool _disposed = false;
 
@@ -82,8 +85,10 @@ class PomodoroController extends StateNotifier<PomodoroState> {
     final persisted = await _database.timerState(_accountId);
     if (_disposed) return;
     if (persisted == null) {
+      final activityId = await _database.firstActiveActivityId(_accountId);
       state = state.copyWith(
         settings: settings,
+        activityId: activityId,
         remaining: Duration(minutes: settings.focusMinutes),
       );
       return;
@@ -105,6 +110,23 @@ class PomodoroController extends StateNotifier<PomodoroState> {
 
   Future<void> selectActivity(String? activityId) async {
     state = state.copyWith(activityId: activityId, status: 'Activity selected');
+    await _persist();
+  }
+
+  Future<void> selectRound(int round) async {
+    if (state.running) {
+      state = state.copyWith(status: 'Stop the timer to change round');
+      return;
+    }
+    final total = state.settings.roundsBeforeLongBreak;
+    final selected = round.clamp(1, total);
+    state = state.copyWith(
+      phaseIndex: selected - 1,
+      kind: BlockKind.focus,
+      remaining: state.settings.durationFor(BlockKind.focus),
+      startedAt: null,
+      status: 'Round $selected selected',
+    );
     await _persist();
   }
 
@@ -218,6 +240,7 @@ class PomodoroController extends StateNotifier<PomodoroState> {
       kind: nextKind,
       phaseIndex: nextIndex,
       remaining: state.settings.durationFor(nextKind),
+      startedAt: endedAt,
       running: state.kind == BlockKind.focus
           ? state.settings.autoStartBreaks
           : state.settings.autoStartFocus,
@@ -225,6 +248,7 @@ class PomodoroController extends StateNotifier<PomodoroState> {
           state.kind == BlockKind.focus ? 'Focus complete' : 'Break complete',
     );
     await _persist();
+    await notifications?.showPhase(nextKind, (nextIndex % state.settings.roundsBeforeLongBreak) + 1);
     if (state.running) await start();
   }
 

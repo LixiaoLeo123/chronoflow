@@ -1,9 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/domain.dart';
+import 'color_selection.dart';
 import '../../providers.dart';
-import '../../repositories/activity_repository.dart';
 
 class ActivitiesScreen extends ConsumerWidget {
   const ActivitiesScreen({super.key});
@@ -93,7 +95,12 @@ class ActivitiesScreen extends ConsumerWidget {
     final current =
         ref.read(activitiesProvider(accountId)).value ?? const <Activity>[];
     final name = TextEditingController(text: activity?.name ?? '');
-    var color = activity?.color ?? repository.nextUnusedColor(current);
+    final existingColors = current
+        .where((item) => !item.deleted && item.id != activity?.id)
+        .map((item) => item.color)
+        .toList();
+    var color = activity?.color ??
+        randomDistinctColor(existingColors, random: math.Random());
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -112,11 +119,53 @@ class ActivitiesScreen extends ConsumerWidget {
                 decoration: const InputDecoration(labelText: 'Name'),
               ),
               const SizedBox(height: 20),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 21,
+                    backgroundColor: Color(color),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.shuffle),
+                      label: const Text('Random color'),
+                      onPressed: () {
+                        setState(() {
+                          color = randomDistinctColor(existingColors);
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text('Custom color', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              _ColorSlider(
+                label: 'Red',
+                value: (color >> 16) & 0xFF,
+                onChanged: (value) =>
+                    setState(() => color = (color & 0xFF00FFFF) | (value << 16)),
+              ),
+              _ColorSlider(
+                label: 'Green',
+                value: (color >> 8) & 0xFF,
+                onChanged: (value) =>
+                    setState(() => color = (color & 0xFFFF00FF) | (value << 8)),
+              ),
+              _ColorSlider(
+                label: 'Blue',
+                value: color & 0xFF,
+                onChanged: (value) =>
+                    setState(() => color = (color & 0xFFFFFF00) | value),
+              ),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  for (final item in ActivityRepository.palette)
+                  for (final item in selectableActivityColors)
                     GestureDetector(
                       onTap: () => setState(() => color = item),
                       child: CircleAvatar(
@@ -157,5 +206,39 @@ class ActivitiesScreen extends ConsumerWidget {
             .showSnackBar(SnackBar(content: Text('$error')));
       }
     }
+  }
+}
+
+class _ColorSlider extends StatelessWidget {
+  const _ColorSlider({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 52,
+          child: Text(label),
+        ),
+        Expanded(
+          child: Slider(
+            value: value.toDouble(),
+            min: 0,
+            max: 255,
+            divisions: 255,
+            label: value.toString(),
+            onChanged: (newValue) => onChanged(newValue.round()),
+          ),
+        ),
+      ],
+    );
   }
 }

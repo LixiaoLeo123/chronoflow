@@ -21,17 +21,18 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.connection);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (Migrator m) async {
           await m.createAll();
-          await customStatement(
-            'CREATE UNIQUE INDEX activities_account_active_color '
-            'ON activities(account_id, color) '
-            'WHERE deleted = 0 AND archived = 0',
-          );
+          // Colors are visual cues only; activities may intentionally share one.
+        },
+        onUpgrade: (Migrator m, from, to) async {
+          if (from < 2) {
+            await customStatement('DROP INDEX IF EXISTS activities_account_active_color');
+          }
         },
       );
 
@@ -55,6 +56,23 @@ class AppDatabase extends _$AppDatabase {
               selected: const Value(true), lastUsedAt: Value(DateTime.now())),
         );
       });
+
+  Future<void> clearSelectedAccount() => transaction(() async {
+        await (update(accounts)..where((row) => row.selected)).write(
+          const AccountsCompanion(selected: Value(false)),
+        );
+      });
+
+  Future<String?> firstActiveActivityId(String accountId) async {
+    final row = await (select(activities)
+          ..where((row) =>
+              row.accountId.equals(accountId) &
+              row.deleted.equals(false) &
+              row.archived.equals(false))
+          ..orderBy([(row) => OrderingTerm.asc(row.name)]))
+        .getSingleOrNull();
+    return row?.id;
+  }
 
   Future<void> upsertActivity(Activity activity) =>
       into(activities).insertOnConflictUpdate(_activityCompanion(activity));
