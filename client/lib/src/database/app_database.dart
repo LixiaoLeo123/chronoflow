@@ -21,7 +21,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.connection);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -32,6 +32,9 @@ class AppDatabase extends _$AppDatabase {
         onUpgrade: (Migrator m, from, to) async {
           if (from < 2) {
             await customStatement('DROP INDEX IF EXISTS activities_account_active_color');
+          }
+          if (from < 3) {
+            await m.addColumn(accounts, accounts.role);
           }
         },
       );
@@ -62,6 +65,11 @@ class AppDatabase extends _$AppDatabase {
           const AccountsCompanion(selected: Value(false)),
         );
       });
+
+  Future<void> setAccountRole(String accountId, String role) async {
+    await (update(accounts)..where((row) => row.id.equals(accountId)))
+        .write(AccountsCompanion(role: Value(role)));
+  }
 
   Future<String?> firstActiveActivityId(String accountId) async {
     final row = await (select(activities)

@@ -19,6 +19,13 @@ class $AccountsTable extends Accounts with TableInfo<$AccountsTable, Account> {
   late final GeneratedColumn<String> username = GeneratedColumn<String>(
       'username', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _roleMeta = const VerificationMeta('role');
+  @override
+  late final GeneratedColumn<String> role = GeneratedColumn<String>(
+      'role', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('user'));
   static const VerificationMeta _selectedMeta =
       const VerificationMeta('selected');
   @override
@@ -43,7 +50,7 @@ class $AccountsTable extends Accounts with TableInfo<$AccountsTable, Account> {
       type: DriftSqlType.dateTime, requiredDuringInsert: true);
   @override
   List<GeneratedColumn> get $columns =>
-      [id, username, selected, syncCursor, lastUsedAt];
+      [id, username, role, selected, syncCursor, lastUsedAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -64,6 +71,10 @@ class $AccountsTable extends Accounts with TableInfo<$AccountsTable, Account> {
           username.isAcceptableOrUnknown(data['username']!, _usernameMeta));
     } else if (isInserting) {
       context.missing(_usernameMeta);
+    }
+    if (data.containsKey('role')) {
+      context.handle(
+          _roleMeta, role.isAcceptableOrUnknown(data['role']!, _roleMeta));
     }
     if (data.containsKey('selected')) {
       context.handle(_selectedMeta,
@@ -96,6 +107,8 @@ class $AccountsTable extends Accounts with TableInfo<$AccountsTable, Account> {
           .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
       username: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}username'])!,
+      role: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}role'])!,
       selected: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}selected'])!,
       syncCursor: attachedDatabase.typeMapping
@@ -114,12 +127,14 @@ class $AccountsTable extends Accounts with TableInfo<$AccountsTable, Account> {
 class Account extends DataClass implements Insertable<Account> {
   final String id;
   final String username;
+  final String role;
   final bool selected;
   final String? syncCursor;
   final DateTime lastUsedAt;
   const Account(
       {required this.id,
       required this.username,
+      required this.role,
       required this.selected,
       this.syncCursor,
       required this.lastUsedAt});
@@ -128,6 +143,7 @@ class Account extends DataClass implements Insertable<Account> {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['username'] = Variable<String>(username);
+    map['role'] = Variable<String>(role);
     map['selected'] = Variable<bool>(selected);
     if (!nullToAbsent || syncCursor != null) {
       map['sync_cursor'] = Variable<String>(syncCursor);
@@ -140,6 +156,7 @@ class Account extends DataClass implements Insertable<Account> {
     return AccountsCompanion(
       id: Value(id),
       username: Value(username),
+      role: Value(role),
       selected: Value(selected),
       syncCursor: syncCursor == null && nullToAbsent
           ? const Value.absent()
@@ -154,6 +171,7 @@ class Account extends DataClass implements Insertable<Account> {
     return Account(
       id: serializer.fromJson<String>(json['id']),
       username: serializer.fromJson<String>(json['username']),
+      role: serializer.fromJson<String>(json['role']),
       selected: serializer.fromJson<bool>(json['selected']),
       syncCursor: serializer.fromJson<String?>(json['syncCursor']),
       lastUsedAt: serializer.fromJson<DateTime>(json['lastUsedAt']),
@@ -165,6 +183,7 @@ class Account extends DataClass implements Insertable<Account> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'username': serializer.toJson<String>(username),
+      'role': serializer.toJson<String>(role),
       'selected': serializer.toJson<bool>(selected),
       'syncCursor': serializer.toJson<String?>(syncCursor),
       'lastUsedAt': serializer.toJson<DateTime>(lastUsedAt),
@@ -174,12 +193,14 @@ class Account extends DataClass implements Insertable<Account> {
   Account copyWith(
           {String? id,
           String? username,
+          String? role,
           bool? selected,
           Value<String?> syncCursor = const Value.absent(),
           DateTime? lastUsedAt}) =>
       Account(
         id: id ?? this.id,
         username: username ?? this.username,
+        role: role ?? this.role,
         selected: selected ?? this.selected,
         syncCursor: syncCursor.present ? syncCursor.value : this.syncCursor,
         lastUsedAt: lastUsedAt ?? this.lastUsedAt,
@@ -188,6 +209,7 @@ class Account extends DataClass implements Insertable<Account> {
     return Account(
       id: data.id.present ? data.id.value : this.id,
       username: data.username.present ? data.username.value : this.username,
+      role: data.role.present ? data.role.value : this.role,
       selected: data.selected.present ? data.selected.value : this.selected,
       syncCursor:
           data.syncCursor.present ? data.syncCursor.value : this.syncCursor,
@@ -201,6 +223,7 @@ class Account extends DataClass implements Insertable<Account> {
     return (StringBuffer('Account(')
           ..write('id: $id, ')
           ..write('username: $username, ')
+          ..write('role: $role, ')
           ..write('selected: $selected, ')
           ..write('syncCursor: $syncCursor, ')
           ..write('lastUsedAt: $lastUsedAt')
@@ -210,13 +233,14 @@ class Account extends DataClass implements Insertable<Account> {
 
   @override
   int get hashCode =>
-      Object.hash(id, username, selected, syncCursor, lastUsedAt);
+      Object.hash(id, username, role, selected, syncCursor, lastUsedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Account &&
           other.id == this.id &&
           other.username == this.username &&
+          other.role == this.role &&
           other.selected == this.selected &&
           other.syncCursor == this.syncCursor &&
           other.lastUsedAt == this.lastUsedAt);
@@ -225,6 +249,7 @@ class Account extends DataClass implements Insertable<Account> {
 class AccountsCompanion extends UpdateCompanion<Account> {
   final Value<String> id;
   final Value<String> username;
+  final Value<String> role;
   final Value<bool> selected;
   final Value<String?> syncCursor;
   final Value<DateTime> lastUsedAt;
@@ -232,6 +257,7 @@ class AccountsCompanion extends UpdateCompanion<Account> {
   const AccountsCompanion({
     this.id = const Value.absent(),
     this.username = const Value.absent(),
+    this.role = const Value.absent(),
     this.selected = const Value.absent(),
     this.syncCursor = const Value.absent(),
     this.lastUsedAt = const Value.absent(),
@@ -240,6 +266,7 @@ class AccountsCompanion extends UpdateCompanion<Account> {
   AccountsCompanion.insert({
     required String id,
     required String username,
+    this.role = const Value.absent(),
     this.selected = const Value.absent(),
     this.syncCursor = const Value.absent(),
     required DateTime lastUsedAt,
@@ -250,6 +277,7 @@ class AccountsCompanion extends UpdateCompanion<Account> {
   static Insertable<Account> custom({
     Expression<String>? id,
     Expression<String>? username,
+    Expression<String>? role,
     Expression<bool>? selected,
     Expression<String>? syncCursor,
     Expression<DateTime>? lastUsedAt,
@@ -258,6 +286,7 @@ class AccountsCompanion extends UpdateCompanion<Account> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (username != null) 'username': username,
+      if (role != null) 'role': role,
       if (selected != null) 'selected': selected,
       if (syncCursor != null) 'sync_cursor': syncCursor,
       if (lastUsedAt != null) 'last_used_at': lastUsedAt,
@@ -268,6 +297,7 @@ class AccountsCompanion extends UpdateCompanion<Account> {
   AccountsCompanion copyWith(
       {Value<String>? id,
       Value<String>? username,
+      Value<String>? role,
       Value<bool>? selected,
       Value<String?>? syncCursor,
       Value<DateTime>? lastUsedAt,
@@ -275,6 +305,7 @@ class AccountsCompanion extends UpdateCompanion<Account> {
     return AccountsCompanion(
       id: id ?? this.id,
       username: username ?? this.username,
+      role: role ?? this.role,
       selected: selected ?? this.selected,
       syncCursor: syncCursor ?? this.syncCursor,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
@@ -290,6 +321,9 @@ class AccountsCompanion extends UpdateCompanion<Account> {
     }
     if (username.present) {
       map['username'] = Variable<String>(username.value);
+    }
+    if (role.present) {
+      map['role'] = Variable<String>(role.value);
     }
     if (selected.present) {
       map['selected'] = Variable<bool>(selected.value);
@@ -311,6 +345,7 @@ class AccountsCompanion extends UpdateCompanion<Account> {
     return (StringBuffer('AccountsCompanion(')
           ..write('id: $id, ')
           ..write('username: $username, ')
+          ..write('role: $role, ')
           ..write('selected: $selected, ')
           ..write('syncCursor: $syncCursor, ')
           ..write('lastUsedAt: $lastUsedAt, ')
@@ -2209,6 +2244,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
 typedef $$AccountsTableCreateCompanionBuilder = AccountsCompanion Function({
   required String id,
   required String username,
+  Value<String> role,
   Value<bool> selected,
   Value<String?> syncCursor,
   required DateTime lastUsedAt,
@@ -2217,6 +2253,7 @@ typedef $$AccountsTableCreateCompanionBuilder = AccountsCompanion Function({
 typedef $$AccountsTableUpdateCompanionBuilder = AccountsCompanion Function({
   Value<String> id,
   Value<String> username,
+  Value<String> role,
   Value<bool> selected,
   Value<String?> syncCursor,
   Value<DateTime> lastUsedAt,
@@ -2237,6 +2274,9 @@ class $$AccountsTableFilterComposer
 
   ColumnFilters<String> get username => $composableBuilder(
       column: $table.username, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get selected => $composableBuilder(
       column: $table.selected, builder: (column) => ColumnFilters(column));
@@ -2263,6 +2303,9 @@ class $$AccountsTableOrderingComposer
   ColumnOrderings<String> get username => $composableBuilder(
       column: $table.username, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<bool> get selected => $composableBuilder(
       column: $table.selected, builder: (column) => ColumnOrderings(column));
 
@@ -2287,6 +2330,9 @@ class $$AccountsTableAnnotationComposer
 
   GeneratedColumn<String> get username =>
       $composableBuilder(column: $table.username, builder: (column) => column);
+
+  GeneratedColumn<String> get role =>
+      $composableBuilder(column: $table.role, builder: (column) => column);
 
   GeneratedColumn<bool> get selected =>
       $composableBuilder(column: $table.selected, builder: (column) => column);
@@ -2323,6 +2369,7 @@ class $$AccountsTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<String> id = const Value.absent(),
             Value<String> username = const Value.absent(),
+            Value<String> role = const Value.absent(),
             Value<bool> selected = const Value.absent(),
             Value<String?> syncCursor = const Value.absent(),
             Value<DateTime> lastUsedAt = const Value.absent(),
@@ -2331,6 +2378,7 @@ class $$AccountsTableTableManager extends RootTableManager<
               AccountsCompanion(
             id: id,
             username: username,
+            role: role,
             selected: selected,
             syncCursor: syncCursor,
             lastUsedAt: lastUsedAt,
@@ -2339,6 +2387,7 @@ class $$AccountsTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             required String id,
             required String username,
+            Value<String> role = const Value.absent(),
             Value<bool> selected = const Value.absent(),
             Value<String?> syncCursor = const Value.absent(),
             required DateTime lastUsedAt,
@@ -2347,6 +2396,7 @@ class $$AccountsTableTableManager extends RootTableManager<
               AccountsCompanion.insert(
             id: id,
             username: username,
+            role: role,
             selected: selected,
             syncCursor: syncCursor,
             lastUsedAt: lastUsedAt,

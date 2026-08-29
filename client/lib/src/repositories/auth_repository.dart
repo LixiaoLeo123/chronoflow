@@ -42,6 +42,7 @@ class AuthRepository {
     final account = Account(
       id: accountId,
       username: user['username'] as String,
+      role: user['role'] as String? ?? 'user',
       selected: true,
       lastUsedAt: now,
     );
@@ -71,6 +72,22 @@ class AuthRepository {
   }
 
   Future<void> select(String accountId) => _database.selectAccount(accountId);
+
+  /// Refreshes the locally cached role from `/v1/me`. Best effort: on any
+  /// failure the cached role is kept, so the Settings screen falls back to the
+  /// value captured at login/register.
+  Future<void> refreshRole(String accountId) async {
+    if (!await ensureAccessToken(accountId)) return;
+    try {
+      final response = await _authApi.me();
+      await _database.setAccountRole(
+        accountId,
+        response['role'] as String? ?? 'user',
+      );
+    } on ApiException {
+      // Best effort only.
+    }
+  }
 
   Future<Map<String, dynamic>> createInvite(
     String accountId, {

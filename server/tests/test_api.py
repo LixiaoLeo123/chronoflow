@@ -61,6 +61,21 @@ def test_registration_requires_valid_invite(client, monkeypatch):
     assert reused.status_code == 403
 
 
+def test_non_admin_cannot_create_invites(client):
+    admin = create_admin(client)
+    invite = client.post(
+        "/v1/admin/invites", headers=auth_headers(admin["accessToken"])
+    ).json()["code"]
+    user = client.post(
+        "/v1/auth/register",
+        json={"username": "member2", "password": "a-long-password", "invitationCode": invite},
+    ).json()
+    denied = client.post(
+        "/v1/admin/invites", headers=auth_headers(user["accessToken"])
+    )
+    assert denied.status_code == 403
+
+
 def test_refresh_and_account_scoped_sync(client):
     admin = create_admin(client)
     admin_headers = auth_headers(admin["accessToken"])

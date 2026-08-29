@@ -25,8 +25,10 @@ class SettingsScreen extends ConsumerWidget {
               accountId: account?.id,
               enabled: account != null,
             ),
-            const SizedBox(height: 16),
-            _InvitationCard(accountId: account?.id),
+            if (account?.role == 'admin') ...[
+              const SizedBox(height: 16),
+              _InvitationCard(accountId: account?.id),
+            ],
             const SizedBox(height: 16),
             Text('Accounts', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),

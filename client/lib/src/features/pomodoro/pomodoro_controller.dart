@@ -16,6 +16,16 @@ BlockKind phaseAfterFocus({
   return round == 0 ? BlockKind.longBreak : BlockKind.shortBreak;
 }
 
+/// Active (non-paused) elapsed time of a timer session: the configured
+/// duration minus what remains. Pauses never count because `remaining` only
+/// shrinks while the timer runs.
+Duration activeElapsedFor(PomodoroState state) {
+  final full = state.settings.durationFor(state.kind);
+  final remaining = state.remaining > full ? full : state.remaining;
+  final elapsed = full - remaining;
+  return elapsed.isNegative ? Duration.zero : elapsed;
+}
+
 class PomodoroState {
   const PomodoroState({
     this.settings = TimerSettings.defaults,
@@ -80,6 +90,31 @@ class PomodoroController extends StateNotifier<PomodoroState> {
   late Timer _ticker;
   bool _disposed = false;
 
+  /// Wall-clock anchor of the current live recording. When the user deletes the
+  /// live block on the clock, this moves to the deletion moment so the tape
+  /// keeps growing from there. `null` means "start at the session start".
+  DateTime? _anchorStart;
+  Duration _anchorElapsed = Duration.zero;
+
+  /// The start time of the current live recording (session start unless the
+  /// live block was re-anchored by deleting it on the clock).
+  DateTime? get liveAnchorStart => _anchorStart;
+
+  /// Active (non-paused) time already elapsed before the live anchor.
+  Duration get liveAnchorElapsed => _anchorElapsed;
+
+  /// Active (non-paused) elapsed time for the current session: pauses are never
+  /// counted. See [activeElapsedFor].
+  Duration get _activeElapsed => activeElapsedFor(state);
+
+  /// Cuts the live recording at this moment. The clock then keeps growing a
+  /// fresh arc from here; nothing before the cut is saved when the timer stops.
+  void reanchorLive() {
+    if (state.kind != BlockKind.focus || state.startedAt == null) return;
+    _anchorStart = DateTime.now();
+    _anchorElapsed = _activeElapsed;
+  }
+
   Future<void> _restore() async {
     final settings = await _database.settingsFor(_accountId);
     final persisted = await _database.timerState(_accountId);
@@ -104,6 +139,7 @@ class PomodoroController extends StateNotifier<PomodoroState> {
       remaining: remaining.isNegative ? Duration.zero : remaining,
       running: persisted.isRunning,
       status: persisted.isRunning ? 'Running' : 'Paused',
+      startedAt: persisted.startedAt,
     );
     if (remaining.isNegative) await _complete();
   }
@@ -120,6 +156,8 @@ class PomodoroController extends StateNotifier<PomodoroState> {
     }
     final total = state.settings.roundsBeforeLongBreak;
     final selected = round.clamp(1, total);
+    _anchorStart = null;
+    _anchorElapsed = Duration.zero;
     state = state.copyWith(
       phaseIndex: selected - 1,
       kind: BlockKind.focus,
@@ -139,6 +177,8 @@ class PomodoroController extends StateNotifier<PomodoroState> {
     final endsAt = DateTime.now().add(state.remaining);
     state = state.copyWith(running: true, status: 'Running');
     if (state.startedAt == null) {
+      _anchorStart = null;
+      _anchorElapsed = Duration.zero;
       state = state.copyWith(startedAt: DateTime.now());
     }
     await _database.saveTimerState(
@@ -163,11 +203,38 @@ class PomodoroController extends StateNotifier<PomodoroState> {
   }
 
   Future<void> stop() async {
-    state =
-        PomodoroState(settings: state.settings, activityId: state.activityId);
+    await _recordStoppedBlock();
+    _anchorStart = null;
+    _anchorElapsed = Duration.zero;
     state =
         PomodoroState(settings: state.settings, activityId: state.activityId);
     await _database.clearTimerState(_accountId);
+  }
+
+  /// Persists the active focus time of a manually stopped session as a
+  /// `cancelled` block so the clock records it like a tape. Breaks and
+  /// accidental sub-second starts are ignored.
+  Future<void> _recordStoppedBlock() async {
+    if (state.kind != BlockKind.focus || state.activityId == null) return;
+    final startedAt = state.startedAt;
+    if (startedAt == null) return;
+    final anchorStart = _anchorStart ?? startedAt;
+    final recorded = _activeElapsed - _anchorElapsed;
+    if (recorded <= Duration.zero) return;
+    await _blocks.save(
+      TimeBlock(
+        id: const Uuid().v7(),
+        accountId: _accountId,
+        activityId: state.activityId!,
+        kind: BlockKind.focus,
+        start: anchorStart,
+        end: anchorStart.add(recorded),
+        status: BlockStatus.cancelled,
+        deleted: false,
+        createdAt: anchorStart,
+        updatedAt: DateTime.now(),
+      ),
+    );
   }
 
   Future<void> updateSettings(TimerSettings settings) async {
@@ -212,23 +279,29 @@ class PomodoroController extends StateNotifier<PomodoroState> {
 
   Future<void> _complete() async {
     final endedAt = DateTime.now();
-    final startedAt = endedAt.subtract(state.settings.durationFor(state.kind));
-    if (state.kind == BlockKind.focus && state.activityId != null) {
+    final anchorStart = _anchorStart ?? state.startedAt;
+    final recorded = _activeElapsed - _anchorElapsed;
+    if (state.kind == BlockKind.focus &&
+        state.activityId != null &&
+        anchorStart != null &&
+        recorded > Duration.zero) {
       await _blocks.save(
         TimeBlock(
           id: const Uuid().v7(),
           accountId: _accountId,
           activityId: state.activityId!,
           kind: BlockKind.focus,
-          start: startedAt,
-          end: endedAt,
+          start: anchorStart,
+          end: anchorStart.add(recorded),
           status: BlockStatus.completed,
           deleted: false,
-          createdAt: startedAt,
+          createdAt: anchorStart,
           updatedAt: endedAt,
         ),
       );
     }
+    _anchorStart = null;
+    _anchorElapsed = Duration.zero;
     final nextIndex =
         state.kind == BlockKind.focus ? state.phaseIndex + 1 : state.phaseIndex;
     final nextKind = state.kind == BlockKind.focus

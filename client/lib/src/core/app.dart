@@ -108,6 +108,8 @@ class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
                 results.any((result) => result != ConnectivityResult.none)),
           );
       _startedAccountId = accountId;
+      // Keep the locally cached admin flag in sync with the server.
+      unawaited(ref.read(authRepositoryProvider).refreshRole(accountId));
     } catch (_) {
     } finally {
       _starting = false;

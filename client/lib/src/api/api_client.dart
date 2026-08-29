@@ -57,6 +57,17 @@ class ApiClient {
   Future<Map<String, dynamic>> sync(Map<String, dynamic> body) =>
       post('/v1/sync', body, authenticated: true);
 
+  Future<Map<String, dynamic>> get(String path) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl$path'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+      },
+    );
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> post(
     String path,
     Map<String, dynamic> body, {

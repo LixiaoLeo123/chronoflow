@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 class Accounts extends Table {
   TextColumn get id => text()();
   TextColumn get username => text()();
+  TextColumn get role => text().withDefault(const Constant('user'))();
   BoolColumn get selected => boolean().withDefault(const Constant(false))();
   TextColumn get syncCursor => text().nullable()();
   DateTimeColumn get lastUsedAt => dateTime()();
