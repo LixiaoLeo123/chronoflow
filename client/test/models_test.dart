@@ -42,17 +42,6 @@ void main() {
         BlockKind.longBreak,
       );
     });
-
-    test('active elapsed only counts running time, never pauses', () {
-      // 25-minute focus, 10 minutes remaining → 15 minutes of active time.
-      const running = PomodoroState(remaining: Duration(minutes: 10));
-      expect(activeElapsedFor(running), const Duration(minutes: 15));
-      // A paused session keeps its remaining time, so elapsed is unchanged.
-      const paused = PomodoroState(remaining: Duration(minutes: 10));
-      expect(activeElapsedFor(paused), const Duration(minutes: 15));
-      // A never-started session has the full duration left.
-      expect(activeElapsedFor(const PomodoroState()), Duration.zero);
-    });
   });
 
   group('summary aggregation', () {

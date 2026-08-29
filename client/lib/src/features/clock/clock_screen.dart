@@ -46,7 +46,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final side = math.min(constraints.maxWidth, constraints.maxHeight);
+          final side = math.min(
+              constraints.maxWidth, math.min(constraints.maxHeight, 520.0));
           return Center(
             child: SizedBox(
               width: side,
@@ -69,13 +70,15 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
     );
   }
 
-  /// The live recording of the running focus timer: an arc that grows with the
-  /// active (non-paused) elapsed time. Breaks are never recorded, and a focus
-  /// session whose activity no longer exists is hidden too.
+  /// The live recording of the running focus timer: sand is laid at the real
+  /// current time while the focus timer runs, so the arc spans [run start, now]
+  /// and grows in real time. Pausing ends the run (it was saved as a block), so
+  /// there is no live arc while paused or on a break.
   TimeBlock? _liveBlock(
       PomodoroState timer, String accountId, List<Activity> activities) {
+    if (!timer.running || timer.kind != BlockKind.focus) return null;
     final startedAt = timer.startedAt;
-    if (startedAt == null || timer.kind != BlockKind.focus) return null;
+    if (startedAt == null) return null;
     final activityId = timer.activityId;
     if (activityId == null) return null;
     if (!activities
@@ -83,20 +86,20 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
       return null;
     }
     final controller = ref.read(pomodoroProvider(accountId).notifier);
-    final anchorStart = controller.liveAnchorStart ?? startedAt;
-    final recorded = activeElapsedFor(timer) - controller.liveAnchorElapsed;
-    if (recorded <= Duration.zero) return null;
+    final runStart = controller.liveAnchorStart ?? startedAt;
+    final now = DateTime.now();
+    if (!now.isAfter(runStart)) return null;
     return TimeBlock(
       id: _liveBlockId,
       accountId: '',
       activityId: activityId,
       kind: BlockKind.focus,
-      start: anchorStart,
-      end: anchorStart.add(recorded),
+      start: runStart,
+      end: now,
       status: BlockStatus.active,
       deleted: false,
       createdAt: startedAt,
-      updatedAt: DateTime.now(),
+      updatedAt: now,
     );
   }
 
@@ -467,7 +470,7 @@ class _ClockPainter extends CustomPainter {
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = isLive ? strokeWidth + 2 : strokeWidth
-      ..strokeCap = StrokeCap.round
+      ..strokeCap = StrokeCap.butt
       ..color = color;
     var cursor = block.start.toLocal();
     final end = block.end.toLocal();
