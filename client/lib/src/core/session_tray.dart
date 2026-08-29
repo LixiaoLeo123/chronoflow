@@ -5,24 +5,56 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../features/pomodoro/pomodoro_controller.dart';
 import '../models/domain.dart';
 
 /// Draws the mini clock in the system tray: the same progress ring as the
 /// Pomodoro page, coloured differently for focus / short break / long break.
+/// Also owns the tray context menu (Show / Exit).
 ///
 /// The icon is rendered to a PNG at runtime so the ring can show progress.
 /// If rendering fails (e.g. in a sandboxed environment), it falls back to the
 /// bundled static per-kind icons so the tray never silently disappears.
-class SessionTrayController {
-  SessionTrayController();
+class SessionTrayController with TrayListener {
+  SessionTrayController() {
+    trayManager.addListener(this);
+  }
 
   bool _visible = false;
+  bool _menuSet = false;
   BlockKind? _lastKind;
   bool _lastRunning = false;
   int _lastPercent = -1;
   bool _dynamicFailed = false;
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    switch (menuItem.key) {
+      case 'show':
+        _showWindow();
+        break;
+      case 'exit':
+        _exitApp();
+        break;
+    }
+  }
+
+  Future<void> _showWindow() async {
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+      await windowManager.restore();
+    } catch (_) {
+      // Desktop-only; harmless elsewhere.
+    }
+  }
+
+  Future<void> _exitApp() async {
+    await trayManager.destroy();
+    exit(0);
+  }
 
   Future<void> update(PomodoroState state) async {
     if (!Platform.isLinux) return;
@@ -64,6 +96,15 @@ class SessionTrayController {
       _visible = true;
     }
 
+    if (!_menuSet) {
+      _menuSet = true;
+      await trayManager.setContextMenu(Menu(items: [
+        MenuItem(key: 'show', label: 'Show'),
+        MenuItem.separator(),
+        MenuItem(key: 'exit', label: 'Exit'),
+      ]));
+    }
+
     // setIcon above creates the indicator; only then is a tooltip safe.
     await trayManager.setToolTip(
       state.running
@@ -73,6 +114,7 @@ class SessionTrayController {
   }
 
   Future<void> dispose() async {
+    trayManager.removeListener(this);
     if (!Platform.isLinux || !_visible) return;
     await trayManager.destroy();
   }

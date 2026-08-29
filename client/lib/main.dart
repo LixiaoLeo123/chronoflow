@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 import 'package:workmanager/workmanager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'src/core/app.dart';
 import 'src/providers.dart';
@@ -24,9 +25,23 @@ void callbackDispatcher() {
   });
 }
 
+/// Close-to-tray: the window hides instead of quitting so the tray menu's
+/// "Show" can bring it back and the pomodoro keeps running in the background.
+class _CloseToTray extends WindowListener {
+  @override
+  void onWindowClose() async {
+    await windowManager.hide();
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final container = ProviderContainer();
+  if (!Platform.isAndroid) {
+    await windowManager.ensureInitialized();
+    await windowManager.setPreventClose(true);
+    windowManager.addListener(_CloseToTray());
+  }
   await container.read(phaseNotificationsProvider).initialize();
   if (Platform.isAndroid) {
     await Workmanager().initialize(callbackDispatcher);

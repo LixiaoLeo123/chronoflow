@@ -17,17 +17,29 @@ class ClockScreen extends ConsumerStatefulWidget {
   ConsumerState<ClockScreen> createState() => _ClockScreenState();
 }
 
-class _ClockScreenState extends ConsumerState<ClockScreen> {
+class _ClockScreenState extends ConsumerState<ClockScreen>
+    with SingleTickerProviderStateMixin {
   final GlobalKey _clockKey = GlobalKey();
+  late final AnimationController _pulseController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
 
   /// Set during [build] so gesture handlers can reuse the current blocks.
   List<TimeBlock> _displayBlocks = const [];
   String? _hoveredId;
+  bool _dragActive = false;
   Offset? _dragStart;
   Offset? _dragCurrent;
   ({DateTime start, DateTime end})? _dragRange;
   final Stopwatch _dragWatch = Stopwatch();
   Set<String> _selectedIds = {};
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,19 +58,30 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
       if (liveBlock != null) liveBlock,
     ];
 
+    // Pulse the highlight while anything is hovered or selected.
+    final highlightActive = _hoveredId != null || _selectedIds.isNotEmpty;
+    if (highlightActive && !_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    } else if (!highlightActive && _pulseController.isAnimating) {
+      _pulseController
+        ..stop()
+        ..value = 0;
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('24-hour clock')),
-      floatingActionButton: _selectedIds.isEmpty
-          ? FloatingActionButton.extended(
-              onPressed: () => _addBlock(account.id),
-              icon: const Icon(Icons.add),
-              label: const Text('New event'),
-            )
-          : null,
+      floatingActionButton:
+          _selectedIds.isEmpty && !_dragActive
+              ? FloatingActionButton.extended(
+                  onPressed: () => _addBlock(account.id),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New event'),
+                )
+              : null,
       body: Column(
         children: [
           Expanded(child: _dialArea(account.id, _displayBlocks, activities)),
-          if (_selectedIds.isNotEmpty) _selectionBar(context),
+          if (_selectedIds.isNotEmpty && !_dragActive) _selectionBar(context),
         ],
       ),
     );
@@ -66,6 +89,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
 
   Widget _dialArea(String accountId, List<TimeBlock> blocks,
       List<Activity> activities) {
+    final darkMode = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(
       builder: (context, constraints) {
         final side = math.min(
@@ -93,6 +117,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
                     highlightedId: _hoveredId,
                     selectedIds: _selectedIds,
                     dragRange: _dragRange,
+                    pulse: _pulseController,
+                    darkMode: darkMode,
                   ),
                 ),
               ),
@@ -156,7 +182,10 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
     _dragWatch
       ..reset()
       ..start();
-    if (_selectedIds.isNotEmpty) setState(() => _selectedIds = {});
+    final hadSelection = _selectedIds.isNotEmpty;
+    _selectedIds = {};
+    _dragActive = true;
+    if (hadSelection) setState(() {});
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
@@ -179,29 +208,35 @@ class _ClockScreenState extends ConsumerState<ClockScreen> {
   void _onPanEnd() {
     final start = _dragStart;
     final current = _dragCurrent;
+    final wasQuick = _dragWatch.elapsed < const Duration(milliseconds: 400);
     _dragStart = null;
     _dragCurrent = null;
-    final range = _dragRange;
     _dragRange = null;
     _dragWatch.stop();
+    _dragActive = false;
     // A quick gesture is a click with a bit of jitter, not a selection drag:
-    // fall back to opening the tapped segment so clicks always respond.
-    if (start != null && current != null && _dragWatch.elapsed < const Duration(milliseconds: 300)) {
-      if (_selectedIds.isNotEmpty) setState(() => _selectedIds = {});
+    // fall back to the tap behaviour so clicks always respond.
+    if (wasQuick && start != null && current != null) {
+      if (_selectedIds.isNotEmpty) _selectedIds = {};
+      setState(() {});
       _openBlockAt(current, _displayBlocks);
       return;
     }
-    // A real drag keeps its selection (may be empty).
-    if (range == null && _selectedIds.isNotEmpty) {
-      setState(() => _selectedIds = {});
-    } else if (range != null && _selectedIds.isEmpty) {
-      setState(() {});
-    }
+    setState(() {});
   }
 
   void _openBlockAt(Offset position, List<TimeBlock> blocks) {
     if (_selectedIds.isNotEmpty) {
-      _clearSelection();
+      // Selection mode: tapping a segment toggles it, tapping elsewhere
+      // (or the live arc) clears the selection.
+      final found = _blockAt(position, blocks);
+      if (found != null && found.id != _liveBlockId) {
+        setState(() {
+          if (!_selectedIds.add(found.id)) _selectedIds.remove(found.id);
+        });
+      } else {
+        _clearSelection();
+      }
       return;
     }
     final found = _blockAt(position, blocks);
@@ -553,13 +588,21 @@ class _ClockPainter extends CustomPainter {
     this.highlightedId,
     this.selectedIds = const {},
     this.dragRange,
-  });
+    this.pulse,
+    required this.darkMode,
+  }) : super(repaint: pulse);
 
   final List<TimeBlock> blocks;
   final List<Activity> activities;
   final String? highlightedId;
   final Set<String> selectedIds;
   final ({DateTime start, DateTime end})? dragRange;
+  final Animation<double>? pulse;
+  final bool darkMode;
+
+  /// A highlight that is visible on both light and dark surfaces: dark in light
+  /// mode, white in dark mode.
+  Color get _haloColor => darkMode ? Colors.white : const Color(0xFF111827);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -663,7 +706,8 @@ class _ClockPainter extends CustomPainter {
     var cursor = range.start;
     while (cursor.isBefore(range.end)) {
       final nextMidnight = DateTime(cursor.year, cursor.month, cursor.day + 1);
-      final segmentEnd = nextMidnight.isBefore(range.end) ? nextMidnight : range.end;
+      final segmentEnd =
+          nextMidnight.isBefore(range.end) ? nextMidnight : range.end;
       _drawSegment(
           canvas, center, innerRadius, outerRadius, cursor, segmentEnd, paint);
       cursor = segmentEnd;
@@ -682,6 +726,7 @@ class _ClockPainter extends CustomPainter {
     required bool hovered,
     required bool selected,
   }) {
+    final p = pulse?.value ?? 0.0;
     final width = isLive ? strokeWidth + 2 : strokeWidth;
     if (selected) {
       _strokeSegments(
@@ -692,9 +737,10 @@ class _ClockPainter extends CustomPainter {
         block,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = width + 8
+          ..strokeWidth = width + 12 + p * 10
           ..strokeCap = StrokeCap.butt
-          ..color = Colors.white.withValues(alpha: 0.40),
+          ..color = _haloColor.withValues(alpha: 0.30 + p * 0.35)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
       );
     } else if (hovered) {
       _strokeSegments(
@@ -705,9 +751,10 @@ class _ClockPainter extends CustomPainter {
         block,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = width + 4
+          ..strokeWidth = width + 7 + p * 6
           ..strokeCap = StrokeCap.butt
-          ..color = Colors.white.withValues(alpha: 0.20),
+          ..color = _haloColor.withValues(alpha: 0.22 + p * 0.22)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
       );
     }
     _strokeSegments(
@@ -786,5 +833,6 @@ class _ClockPainter extends CustomPainter {
       oldDelegate.activities != activities ||
       oldDelegate.highlightedId != highlightedId ||
       oldDelegate.selectedIds != selectedIds ||
-      oldDelegate.dragRange != dragRange;
+      oldDelegate.dragRange != dragRange ||
+      oldDelegate.darkMode != darkMode;
 }
