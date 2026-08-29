@@ -68,6 +68,7 @@ class TimerStates extends Table {
   TextColumn get kind => text()();
   IntColumn get phaseIndex => integer().withDefault(const Constant(0))();
   DateTimeColumn get startedAt => dateTime().nullable()();
+  DateTimeColumn get runStart => dateTime().nullable()();
   DateTimeColumn get endsAt => dateTime().nullable()();
   BoolColumn get paused => boolean().withDefault(const Constant(true))();
   IntColumn get remainingMs => integer()();

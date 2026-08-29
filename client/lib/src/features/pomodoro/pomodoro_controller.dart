@@ -142,9 +142,8 @@ class PomodoroController extends StateNotifier<PomodoroState> {
     // A session killed while running still has an open focus run. Paused
     // sessions have no open run (the run was already saved when it paused).
     _runStart = persisted.isRunning &&
-            persisted.kind == BlockKind.focus &&
-            persisted.startedAt != null
-        ? persisted.startedAt
+            persisted.kind == BlockKind.focus
+        ? (persisted.runStart ?? persisted.startedAt)
         : null;
     state = PomodoroState(
       settings: settings,
@@ -203,6 +202,7 @@ class PomodoroController extends StateNotifier<PomodoroState> {
         kind: state.kind,
         phaseIndex: state.phaseIndex,
         startedAt: state.startedAt ?? DateTime.now(),
+        runStart: _runStart,
         endsAt: endsAt,
         paused: false,
         remainingMs: state.remaining.inMilliseconds,
@@ -250,6 +250,7 @@ class PomodoroController extends StateNotifier<PomodoroState> {
         kind: state.kind,
         phaseIndex: state.phaseIndex,
         startedAt: state.startedAt,
+        runStart: _runStart,
         endsAt: state.running ? DateTime.now().add(state.remaining) : null,
         paused: !state.running,
         remainingMs: state.remaining.inMilliseconds,

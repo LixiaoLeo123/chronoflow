@@ -1784,6 +1784,12 @@ class $TimerStatesTable extends TimerStates
   late final GeneratedColumn<DateTime> startedAt = GeneratedColumn<DateTime>(
       'started_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _runStartMeta =
+      const VerificationMeta('runStart');
+  @override
+  late final GeneratedColumn<DateTime> runStart = GeneratedColumn<DateTime>(
+      'run_start', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
   static const VerificationMeta _endsAtMeta = const VerificationMeta('endsAt');
   @override
   late final GeneratedColumn<DateTime> endsAt = GeneratedColumn<DateTime>(
@@ -1817,6 +1823,7 @@ class $TimerStatesTable extends TimerStates
         kind,
         phaseIndex,
         startedAt,
+        runStart,
         endsAt,
         paused,
         remainingMs,
@@ -1860,6 +1867,10 @@ class $TimerStatesTable extends TimerStates
       context.handle(_startedAtMeta,
           startedAt.isAcceptableOrUnknown(data['started_at']!, _startedAtMeta));
     }
+    if (data.containsKey('run_start')) {
+      context.handle(_runStartMeta,
+          runStart.isAcceptableOrUnknown(data['run_start']!, _runStartMeta));
+    }
     if (data.containsKey('ends_at')) {
       context.handle(_endsAtMeta,
           endsAt.isAcceptableOrUnknown(data['ends_at']!, _endsAtMeta));
@@ -1901,6 +1912,8 @@ class $TimerStatesTable extends TimerStates
           .read(DriftSqlType.int, data['${effectivePrefix}phase_index'])!,
       startedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}started_at']),
+      runStart: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}run_start']),
       endsAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}ends_at']),
       paused: attachedDatabase.typeMapping
@@ -1924,6 +1937,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
   final String kind;
   final int phaseIndex;
   final DateTime? startedAt;
+  final DateTime? runStart;
   final DateTime? endsAt;
   final bool paused;
   final int remainingMs;
@@ -1934,6 +1948,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
       required this.kind,
       required this.phaseIndex,
       this.startedAt,
+      this.runStart,
       this.endsAt,
       required this.paused,
       required this.remainingMs,
@@ -1949,6 +1964,9 @@ class TimerState extends DataClass implements Insertable<TimerState> {
     map['phase_index'] = Variable<int>(phaseIndex);
     if (!nullToAbsent || startedAt != null) {
       map['started_at'] = Variable<DateTime>(startedAt);
+    }
+    if (!nullToAbsent || runStart != null) {
+      map['run_start'] = Variable<DateTime>(runStart);
     }
     if (!nullToAbsent || endsAt != null) {
       map['ends_at'] = Variable<DateTime>(endsAt);
@@ -1970,6 +1988,9 @@ class TimerState extends DataClass implements Insertable<TimerState> {
       startedAt: startedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(startedAt),
+      runStart: runStart == null && nullToAbsent
+          ? const Value.absent()
+          : Value(runStart),
       endsAt:
           endsAt == null && nullToAbsent ? const Value.absent() : Value(endsAt),
       paused: Value(paused),
@@ -1987,6 +2008,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
       kind: serializer.fromJson<String>(json['kind']),
       phaseIndex: serializer.fromJson<int>(json['phaseIndex']),
       startedAt: serializer.fromJson<DateTime?>(json['startedAt']),
+      runStart: serializer.fromJson<DateTime?>(json['runStart']),
       endsAt: serializer.fromJson<DateTime?>(json['endsAt']),
       paused: serializer.fromJson<bool>(json['paused']),
       remainingMs: serializer.fromJson<int>(json['remainingMs']),
@@ -2002,6 +2024,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
       'kind': serializer.toJson<String>(kind),
       'phaseIndex': serializer.toJson<int>(phaseIndex),
       'startedAt': serializer.toJson<DateTime?>(startedAt),
+      'runStart': serializer.toJson<DateTime?>(runStart),
       'endsAt': serializer.toJson<DateTime?>(endsAt),
       'paused': serializer.toJson<bool>(paused),
       'remainingMs': serializer.toJson<int>(remainingMs),
@@ -2015,6 +2038,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
           String? kind,
           int? phaseIndex,
           Value<DateTime?> startedAt = const Value.absent(),
+          Value<DateTime?> runStart = const Value.absent(),
           Value<DateTime?> endsAt = const Value.absent(),
           bool? paused,
           int? remainingMs,
@@ -2025,6 +2049,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
         kind: kind ?? this.kind,
         phaseIndex: phaseIndex ?? this.phaseIndex,
         startedAt: startedAt.present ? startedAt.value : this.startedAt,
+        runStart: runStart.present ? runStart.value : this.runStart,
         endsAt: endsAt.present ? endsAt.value : this.endsAt,
         paused: paused ?? this.paused,
         remainingMs: remainingMs ?? this.remainingMs,
@@ -2039,6 +2064,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
       phaseIndex:
           data.phaseIndex.present ? data.phaseIndex.value : this.phaseIndex,
       startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+      runStart: data.runStart.present ? data.runStart.value : this.runStart,
       endsAt: data.endsAt.present ? data.endsAt.value : this.endsAt,
       paused: data.paused.present ? data.paused.value : this.paused,
       remainingMs:
@@ -2055,6 +2081,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
           ..write('kind: $kind, ')
           ..write('phaseIndex: $phaseIndex, ')
           ..write('startedAt: $startedAt, ')
+          ..write('runStart: $runStart, ')
           ..write('endsAt: $endsAt, ')
           ..write('paused: $paused, ')
           ..write('remainingMs: $remainingMs, ')
@@ -2065,7 +2092,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
 
   @override
   int get hashCode => Object.hash(accountId, activityId, kind, phaseIndex,
-      startedAt, endsAt, paused, remainingMs, updatedAt);
+      startedAt, runStart, endsAt, paused, remainingMs, updatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2075,6 +2102,7 @@ class TimerState extends DataClass implements Insertable<TimerState> {
           other.kind == this.kind &&
           other.phaseIndex == this.phaseIndex &&
           other.startedAt == this.startedAt &&
+          other.runStart == this.runStart &&
           other.endsAt == this.endsAt &&
           other.paused == this.paused &&
           other.remainingMs == this.remainingMs &&
@@ -2087,6 +2115,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
   final Value<String> kind;
   final Value<int> phaseIndex;
   final Value<DateTime?> startedAt;
+  final Value<DateTime?> runStart;
   final Value<DateTime?> endsAt;
   final Value<bool> paused;
   final Value<int> remainingMs;
@@ -2098,6 +2127,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
     this.kind = const Value.absent(),
     this.phaseIndex = const Value.absent(),
     this.startedAt = const Value.absent(),
+    this.runStart = const Value.absent(),
     this.endsAt = const Value.absent(),
     this.paused = const Value.absent(),
     this.remainingMs = const Value.absent(),
@@ -2110,6 +2140,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
     required String kind,
     this.phaseIndex = const Value.absent(),
     this.startedAt = const Value.absent(),
+    this.runStart = const Value.absent(),
     this.endsAt = const Value.absent(),
     this.paused = const Value.absent(),
     required int remainingMs,
@@ -2125,6 +2156,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
     Expression<String>? kind,
     Expression<int>? phaseIndex,
     Expression<DateTime>? startedAt,
+    Expression<DateTime>? runStart,
     Expression<DateTime>? endsAt,
     Expression<bool>? paused,
     Expression<int>? remainingMs,
@@ -2137,6 +2169,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
       if (kind != null) 'kind': kind,
       if (phaseIndex != null) 'phase_index': phaseIndex,
       if (startedAt != null) 'started_at': startedAt,
+      if (runStart != null) 'run_start': runStart,
       if (endsAt != null) 'ends_at': endsAt,
       if (paused != null) 'paused': paused,
       if (remainingMs != null) 'remaining_ms': remainingMs,
@@ -2151,6 +2184,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
       Value<String>? kind,
       Value<int>? phaseIndex,
       Value<DateTime?>? startedAt,
+      Value<DateTime?>? runStart,
       Value<DateTime?>? endsAt,
       Value<bool>? paused,
       Value<int>? remainingMs,
@@ -2162,6 +2196,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
       kind: kind ?? this.kind,
       phaseIndex: phaseIndex ?? this.phaseIndex,
       startedAt: startedAt ?? this.startedAt,
+      runStart: runStart ?? this.runStart,
       endsAt: endsAt ?? this.endsAt,
       paused: paused ?? this.paused,
       remainingMs: remainingMs ?? this.remainingMs,
@@ -2187,6 +2222,9 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
     }
     if (startedAt.present) {
       map['started_at'] = Variable<DateTime>(startedAt.value);
+    }
+    if (runStart.present) {
+      map['run_start'] = Variable<DateTime>(runStart.value);
     }
     if (endsAt.present) {
       map['ends_at'] = Variable<DateTime>(endsAt.value);
@@ -2214,6 +2252,7 @@ class TimerStatesCompanion extends UpdateCompanion<TimerState> {
           ..write('kind: $kind, ')
           ..write('phaseIndex: $phaseIndex, ')
           ..write('startedAt: $startedAt, ')
+          ..write('runStart: $runStart, ')
           ..write('endsAt: $endsAt, ')
           ..write('paused: $paused, ')
           ..write('remainingMs: $remainingMs, ')
@@ -3115,6 +3154,7 @@ typedef $$TimerStatesTableCreateCompanionBuilder = TimerStatesCompanion
   required String kind,
   Value<int> phaseIndex,
   Value<DateTime?> startedAt,
+  Value<DateTime?> runStart,
   Value<DateTime?> endsAt,
   Value<bool> paused,
   required int remainingMs,
@@ -3128,6 +3168,7 @@ typedef $$TimerStatesTableUpdateCompanionBuilder = TimerStatesCompanion
   Value<String> kind,
   Value<int> phaseIndex,
   Value<DateTime?> startedAt,
+  Value<DateTime?> runStart,
   Value<DateTime?> endsAt,
   Value<bool> paused,
   Value<int> remainingMs,
@@ -3158,6 +3199,9 @@ class $$TimerStatesTableFilterComposer
 
   ColumnFilters<DateTime> get startedAt => $composableBuilder(
       column: $table.startedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get runStart => $composableBuilder(
+      column: $table.runStart, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get endsAt => $composableBuilder(
       column: $table.endsAt, builder: (column) => ColumnFilters(column));
@@ -3196,6 +3240,9 @@ class $$TimerStatesTableOrderingComposer
   ColumnOrderings<DateTime> get startedAt => $composableBuilder(
       column: $table.startedAt, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<DateTime> get runStart => $composableBuilder(
+      column: $table.runStart, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get endsAt => $composableBuilder(
       column: $table.endsAt, builder: (column) => ColumnOrderings(column));
 
@@ -3232,6 +3279,9 @@ class $$TimerStatesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get startedAt =>
       $composableBuilder(column: $table.startedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get runStart =>
+      $composableBuilder(column: $table.runStart, builder: (column) => column);
 
   GeneratedColumn<DateTime> get endsAt =>
       $composableBuilder(column: $table.endsAt, builder: (column) => column);
@@ -3274,6 +3324,7 @@ class $$TimerStatesTableTableManager extends RootTableManager<
             Value<String> kind = const Value.absent(),
             Value<int> phaseIndex = const Value.absent(),
             Value<DateTime?> startedAt = const Value.absent(),
+            Value<DateTime?> runStart = const Value.absent(),
             Value<DateTime?> endsAt = const Value.absent(),
             Value<bool> paused = const Value.absent(),
             Value<int> remainingMs = const Value.absent(),
@@ -3286,6 +3337,7 @@ class $$TimerStatesTableTableManager extends RootTableManager<
             kind: kind,
             phaseIndex: phaseIndex,
             startedAt: startedAt,
+            runStart: runStart,
             endsAt: endsAt,
             paused: paused,
             remainingMs: remainingMs,
@@ -3298,6 +3350,7 @@ class $$TimerStatesTableTableManager extends RootTableManager<
             required String kind,
             Value<int> phaseIndex = const Value.absent(),
             Value<DateTime?> startedAt = const Value.absent(),
+            Value<DateTime?> runStart = const Value.absent(),
             Value<DateTime?> endsAt = const Value.absent(),
             Value<bool> paused = const Value.absent(),
             required int remainingMs,
@@ -3310,6 +3363,7 @@ class $$TimerStatesTableTableManager extends RootTableManager<
             kind: kind,
             phaseIndex: phaseIndex,
             startedAt: startedAt,
+            runStart: runStart,
             endsAt: endsAt,
             paused: paused,
             remainingMs: remainingMs,

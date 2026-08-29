@@ -199,6 +199,7 @@ class PersistedTimerState {
     required this.kind,
     required this.phaseIndex,
     required this.startedAt,
+    this.runStart,
     required this.endsAt,
     required this.paused,
     required this.remainingMs,
@@ -209,6 +210,11 @@ class PersistedTimerState {
   final BlockKind kind;
   final int phaseIndex;
   final DateTime? startedAt;
+
+  /// Start of the current focus run, so a killed app can resume the live arc
+  /// exactly where it was instead of over-recording the dead gap.
+  final DateTime? runStart;
+
   final DateTime? endsAt;
   final bool paused;
   final int remainingMs;
@@ -221,6 +227,7 @@ class PersistedTimerState {
     BlockKind? kind,
     int? phaseIndex,
     DateTime? startedAt,
+    DateTime? runStart,
     DateTime? endsAt,
     bool? paused,
     int? remainingMs,
@@ -231,6 +238,7 @@ class PersistedTimerState {
         kind: kind ?? this.kind,
         phaseIndex: phaseIndex ?? this.phaseIndex,
         startedAt: startedAt ?? this.startedAt,
+        runStart: runStart ?? this.runStart,
         endsAt: endsAt ?? this.endsAt,
         paused: paused ?? this.paused,
         remainingMs: remainingMs ?? this.remainingMs,

@@ -21,7 +21,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.connection);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -35,6 +35,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 3) {
             await m.addColumn(accounts, accounts.role);
+          }
+          if (from < 4) {
+            await m.addColumn(timerStates, timerStates.runStart);
           }
         },
       );
@@ -164,6 +167,7 @@ class AppDatabase extends _$AppDatabase {
       kind: BlockKind.values.byName(row.kind),
       phaseIndex: row.phaseIndex,
       startedAt: row.startedAt,
+      runStart: row.runStart,
       endsAt: row.endsAt,
       paused: row.paused,
       remainingMs: row.remainingMs,
@@ -180,6 +184,7 @@ class AppDatabase extends _$AppDatabase {
         kind: state.kind.name,
         phaseIndex: Value(state.phaseIndex),
         startedAt: Value(state.startedAt),
+        runStart: Value(state.runStart),
         endsAt: Value(state.endsAt),
         paused: Value(state.paused),
         remainingMs: state.remainingMs,
