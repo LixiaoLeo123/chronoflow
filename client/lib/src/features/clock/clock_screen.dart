@@ -24,7 +24,6 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   final GlobalKey _clockKey = GlobalKey();
   final ValueNotifier<int> _repaint = ValueNotifier<int>(0);
   late final AnimationController _growController;
-  late final AnimationController _selectionPopupController;
   final Map<String, double> _grow = {};
   Map<String, double> _growFrom = {};
   Map<String, double> _growTo = {};
@@ -39,7 +38,6 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   bool _dragMoved = false;
   bool _editorOpen = false;
   bool _selectionDialogOpen = false;
-  OverlayEntry? _selectionOverlay;
   Offset? _dragStart;
   bool _dragOuter = false;
   double? _dragStartAngle;
@@ -56,17 +54,11 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       vsync: this,
       duration: const Duration(milliseconds: 260),
     )..addListener(_tickGrow);
-    _selectionPopupController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 220),
-    );
   }
 
   @override
   void dispose() {
-    _selectionOverlay?.remove();
     _growController.dispose();
-    _selectionPopupController.dispose();
     _repaint.dispose();
     super.dispose();
   }
@@ -547,54 +539,15 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     }
   }
 
-  void _showSelectionDialog() {
+  Future<void> _showSelectionDialog() async {
     if (_selectionDialogOpen || _selectedIds.isEmpty || !mounted) return;
     _selectionDialogOpen = true;
-    final entry = OverlayEntry(
-      builder: (overlayContext) => Stack(
-        fit: StackFit.expand,
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _closeSelectionPopup(clear: true),
-            child: const SizedBox.expand(),
-          ),
-          Center(child: _selectionPopup(overlayContext)),
-        ],
-      ),
-    );
-    _selectionOverlay = entry;
-    Overlay.of(context, rootOverlay: true).insert(entry);
-    _selectionPopupController.forward(from: 0);
-  }
-
-  Widget _selectionPopup(BuildContext popupContext) {
-    final count = _selectedIds.length;
-    final scheme = Theme.of(popupContext).colorScheme;
-    Future<void> choose(String action) async {
-      await _closeSelectionPopup(clear: false);
-      switch (action) {
-        case 'edit':
-          _editSelection();
-        case 'delete':
-          _deleteSelection();
-        case 'clear':
-          _clearSelection();
-      }
-    }
-
-    return ScaleTransition(
-      scale: CurvedAnimation(
-        parent: _selectionPopupController,
-        curve: Curves.easeOutBack,
-        reverseCurve: Curves.easeInCubic,
-      ),
-      child: FadeTransition(
-        opacity: CurvedAnimation(
-          parent: _selectionPopupController,
-          curve: Curves.easeOut,
-        ),
-        child: Dialog(
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        final count = _selectedIds.length;
+        final scheme = Theme.of(dialogContext).colorScheme;
+        return Dialog(
           backgroundColor: scheme.surface,
           surfaceTintColor: scheme.surfaceTint,
           elevation: 24,
@@ -616,7 +569,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                           count == 1
                               ? '1 segment selected'
                               : '$count segments selected',
-                          style: Theme.of(popupContext).textTheme.titleMedium,
+                          style: Theme.of(dialogContext).textTheme.titleMedium,
                         ),
                       ),
                     ],
@@ -624,14 +577,14 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                   const SizedBox(height: 20),
                   if (count == 1) ...[
                     FilledButton.icon(
-                      onPressed: () => choose('edit'),
+                      onPressed: () => Navigator.pop(dialogContext, 'edit'),
                       icon: const Icon(Icons.edit_outlined),
                       label: const Text('Edit segment'),
                     ),
                     const SizedBox(height: 10),
                   ],
                   FilledButton.icon(
-                    onPressed: () => choose('delete'),
+                    onPressed: () => Navigator.pop(dialogContext, 'delete'),
                     icon: const Icon(Icons.delete_outline),
                     label: Text(count == 1
                         ? 'Delete segment'
@@ -639,25 +592,27 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                   ),
                   const SizedBox(height: 10),
                   OutlinedButton(
-                    onPressed: () => choose('clear'),
+                    onPressed: () => Navigator.pop(dialogContext, 'clear'),
                     child: const Text('Clear selection'),
                   ),
                 ],
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
-  }
-
-  Future<void> _closeSelectionPopup({required bool clear}) async {
-    if (!_selectionDialogOpen) return;
-    await _selectionPopupController.reverse();
-    _selectionOverlay?.remove();
-    _selectionOverlay = null;
     _selectionDialogOpen = false;
-    if (clear && mounted) _clearSelection();
+    if (!mounted) return;
+    switch (action) {
+      case 'edit':
+        await _editSelection();
+      case 'delete':
+        await _deleteSelection();
+      case 'clear':
+      case null:
+        _clearSelection();
+    }
   }
 
   // --- Geometry helpers ----------------------------------------------------
