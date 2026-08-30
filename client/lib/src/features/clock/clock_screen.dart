@@ -576,18 +576,29 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       (stroke / 2 + 12) / (outer ? m.outer : m.inner),
     );
     final dayStart = _selectedDay;
+    TimeBlock? nearest;
+    var nearestGap = double.infinity;
     for (final block in blocks) {
       final arc = _blockArcOnRing(block, outer, dayStart);
       if (arc == null) continue;
-      for (final k in [-1, 0, 1]) {
-        final offset = k * 2 * math.pi;
-        if (angle >= arc.start + offset - tolerance &&
-            angle <= arc.end + offset + tolerance) {
-          return block;
-        }
+      final gap = _angularGap(angle, arc.start, arc.end);
+      if (gap <= tolerance && gap < nearestGap) {
+        nearest = block;
+        nearestGap = gap;
       }
     }
-    return null;
+    return nearest;
+  }
+
+  double _angularGap(double angle, double start, double end) {
+    var nearest = double.infinity;
+    for (final k in [-1, 0, 1]) {
+      final offset = k * 2 * math.pi;
+      if (angle >= start + offset && angle <= end + offset) return 0;
+      nearest = math.min(nearest, (angle - start - offset).abs());
+      nearest = math.min(nearest, (angle - end - offset).abs());
+    }
+    return nearest;
   }
 
   Future<void> _pickDay() async {
