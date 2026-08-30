@@ -24,6 +24,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   final GlobalKey _clockKey = GlobalKey();
   final ValueNotifier<int> _repaint = ValueNotifier<int>(0);
   late final AnimationController _growController;
+  late final AnimationController _selectionPopupController;
   final Map<String, double> _grow = {};
   Map<String, double> _growFrom = {};
   Map<String, double> _growTo = {};
@@ -55,12 +56,17 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       vsync: this,
       duration: const Duration(milliseconds: 260),
     )..addListener(_tickGrow);
+    _selectionPopupController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
   }
 
   @override
   void dispose() {
     _selectionOverlay?.remove();
     _growController.dispose();
+    _selectionPopupController.dispose();
     _repaint.dispose();
     super.dispose();
   }
@@ -559,13 +565,14 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     );
     _selectionOverlay = entry;
     Overlay.of(context, rootOverlay: true).insert(entry);
+    _selectionPopupController.forward(from: 0);
   }
 
   Widget _selectionPopup(BuildContext popupContext) {
     final count = _selectedIds.length;
     final scheme = Theme.of(popupContext).colorScheme;
-    void choose(String action) {
-      _closeSelectionPopup(clear: false);
+    Future<void> choose(String action) async {
+      await _closeSelectionPopup(clear: false);
       switch (action) {
         case 'edit':
           _editSelection();
@@ -576,62 +583,77 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       }
     }
 
-    return Dialog(
-      backgroundColor: scheme.surface,
-      surfaceTintColor: scheme.surfaceTint,
-      elevation: 24,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+    return ScaleTransition(
+      scale: CurvedAnimation(
+        parent: _selectionPopupController,
+        curve: Curves.easeOutBack,
+        reverseCurve: Curves.easeInCubic,
+      ),
+      child: FadeTransition(
+        opacity: CurvedAnimation(
+          parent: _selectionPopupController,
+          curve: Curves.easeOut,
+        ),
+        child: Dialog(
+          backgroundColor: scheme.surface,
+          surfaceTintColor: scheme.surfaceTint,
+          elevation: 24,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.check_circle_outline, color: scheme.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      count == 1
-                          ? '1 segment selected'
-                          : '$count segments selected',
-                      style: Theme.of(popupContext).textTheme.titleMedium,
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle_outline, color: scheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          count == 1
+                              ? '1 segment selected'
+                              : '$count segments selected',
+                          style: Theme.of(popupContext).textTheme.titleMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  if (count == 1) ...[
+                    FilledButton.icon(
+                      onPressed: () => choose('edit'),
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Edit segment'),
                     ),
+                    const SizedBox(height: 10),
+                  ],
+                  FilledButton.icon(
+                    onPressed: () => choose('delete'),
+                    icon: const Icon(Icons.delete_outline),
+                    label: Text(count == 1
+                        ? 'Delete segment'
+                        : 'Delete all $count segments'),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton(
+                    onPressed: () => choose('clear'),
+                    child: const Text('Clear selection'),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-              if (count == 1) ...[
-                FilledButton.icon(
-                  onPressed: () => choose('edit'),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Edit segment'),
-                ),
-                const SizedBox(height: 10),
-              ],
-              FilledButton.icon(
-                onPressed: () => choose('delete'),
-                icon: const Icon(Icons.delete_outline),
-                label: Text(count == 1
-                    ? 'Delete segment'
-                    : 'Delete all $count segments'),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton(
-                onPressed: () => choose('clear'),
-                child: const Text('Clear selection'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  void _closeSelectionPopup({required bool clear}) {
+  Future<void> _closeSelectionPopup({required bool clear}) async {
+    if (!_selectionDialogOpen) return;
+    await _selectionPopupController.reverse();
     _selectionOverlay?.remove();
     _selectionOverlay = null;
     _selectionDialogOpen = false;
