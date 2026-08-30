@@ -542,10 +542,15 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     _selectionDialogOpen = true;
     final action = await showDialog<String>(
       context: context,
-      barrierColor: Colors.black54,
+      useRootNavigator: true,
+      barrierColor: Colors.black26,
       builder: (dialogContext) {
         final count = _selectedIds.length;
+        final scheme = Theme.of(dialogContext).colorScheme;
         return Dialog(
+          backgroundColor: scheme.surface,
+          surfaceTintColor: scheme.surfaceTint,
+          elevation: 24,
           insetPadding: const EdgeInsets.symmetric(horizontal: 24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 380),
