@@ -168,7 +168,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                       ),
                     ),
                   ),
-                  IgnorePointer(child: _hoverLabel(activities, blocks)),
+                  _hoverLabel(activities, blocks),
                 ],
               ),
             ),
@@ -240,20 +240,22 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
             ),
     );
     return Positioned.fill(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final position = _hoverAnchor;
-          if (position == null) return chip;
-          const width = 190.0;
-          final left = (position.dx + 14)
-              .clamp(4.0, math.max(4.0, constraints.maxWidth - width - 4))
-              .toDouble();
-          final top = (position.dy - 30)
-              .clamp(4.0, math.max(4.0, constraints.maxHeight - 48))
-              .toDouble();
-          return Stack(
-              children: [Positioned(left: left, top: top, child: chip)]);
-        },
+      child: IgnorePointer(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final position = _hoverAnchor;
+            if (position == null) return chip;
+            const width = 190.0;
+            final left = (position.dx + 14)
+                .clamp(4.0, math.max(4.0, constraints.maxWidth - width - 4))
+                .toDouble();
+            final top = (position.dy - 30)
+                .clamp(4.0, math.max(4.0, constraints.maxHeight - 48))
+                .toDouble();
+            return Stack(
+                children: [Positioned(left: left, top: top, child: chip)]);
+          },
+        ),
       ),
     );
   }

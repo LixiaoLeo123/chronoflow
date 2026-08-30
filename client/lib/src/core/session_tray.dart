@@ -72,10 +72,11 @@ class SessionTrayController with TrayListener {
     // clock tracks the progress; otherwise only redraw when something changed.
     final stateChanged =
         _lastKind != state.kind || _lastRunning != state.running;
-    final redraw =
-        !_visible ||
+    final redraw = !_visible ||
         stateChanged ||
-        (state.running && _lastIconWriteAt.isBefore(now.subtract(const Duration(seconds: 1)))) ||
+        (state.running &&
+            _lastIconWriteAt
+                .isBefore(now.subtract(const Duration(seconds: 1)))) ||
         (!state.running && _lastPercent != percent);
     _lastKind = state.kind;
     _lastRunning = state.running;
@@ -86,9 +87,8 @@ class SessionTrayController with TrayListener {
       try {
         // Write each render to a fresh filename: the panel caches an icon
         // path, so reusing the same path would keep showing the stale frame.
-        final bytes = _dynamicFailed
-            ? null
-            : await _renderRing(state.kind, progress);
+        final bytes =
+            _dynamicFailed ? null : await _renderRing(state.kind, progress);
         if (bytes != null) {
           final file = File(
               '${Directory.systemTemp.path}/chronoflow_tray_${_iconVersion++}.png');
@@ -118,12 +118,15 @@ class SessionTrayController with TrayListener {
       ]));
     }
 
-    // setIcon above creates the indicator; only then is a tooltip safe.
-    await trayManager.setToolTip(
-      state.running
-          ? 'Chronoflow — ${_label(state.kind)} ${_remaining(state.remaining)}'
-          : 'Chronoflow — paused ${_remaining(state.remaining)}',
-    );
+    // Some Linux tray implementations do not expose tooltips. This must not
+    // surface as an unhandled exception in the clock page.
+    try {
+      await trayManager.setToolTip(
+        state.running
+            ? 'Chronoflow — ${_label(state.kind)} ${_remaining(state.remaining)}'
+            : 'Chronoflow — paused ${_remaining(state.remaining)}',
+      );
+    } catch (_) {}
   }
 
   /// Keeps at most the three most recent tray frames in /tmp.
