@@ -40,6 +40,9 @@ class ApiClient {
   static http.Client _pinnedClient() {
     final inner = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15)
+      // Uvicorn closes idle keep-alive sockets after five seconds. Closing a
+      // little earlier prevents the next sync from reusing a stale socket.
+      ..idleTimeout = const Duration(seconds: 4)
       ..badCertificateCallback = (certificate, host, port) {
         if (allowUnpinned && host == '127.0.0.1') return true;
         if (expectedCertificateSha256.isEmpty) return false;
@@ -73,16 +76,35 @@ class ApiClient {
     Map<String, dynamic> body, {
     bool authenticated = false,
   }) async {
-    final response = await _client.post(
-      Uri.parse('$baseUrl$path'),
-      headers: {
-        'Content-Type': 'application/json',
-        if (authenticated && accessToken != null)
-          'Authorization': 'Bearer $accessToken',
-      },
-      body: jsonEncode(body),
-    );
+    Future<http.Response> send() => _client.post(
+          Uri.parse('$baseUrl$path'),
+          headers: {
+            'Content-Type': 'application/json',
+            if (authenticated && accessToken != null)
+              'Authorization': 'Bearer $accessToken',
+          },
+          body: jsonEncode(body),
+        );
+    final response = await _sendWithRetry(send, retry: path == '/v1/sync');
     return _decode(response);
+  }
+
+  Future<http.Response> _sendWithRetry(
+    Future<http.Response> Function() send, {
+    required bool retry,
+  }) async {
+    try {
+      return await send();
+    } on SocketException {
+      if (!retry) rethrow;
+      return send();
+    } on HttpException {
+      if (!retry) rethrow;
+      return send();
+    } on http.ClientException {
+      if (!retry) rethrow;
+      return send();
+    }
   }
 
   Map<String, dynamic> _decode(http.Response response) {

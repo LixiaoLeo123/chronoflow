@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../models/domain.dart';
 import '../../providers.dart';
@@ -120,21 +121,38 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
 
   @override
   Widget build(BuildContext context) {
+    final needsLogin = _message?.contains('No authenticated session') ?? false;
     return Card(
-      child: ListTile(
-        leading: const Icon(Icons.sync_outlined),
-        title: const Text('Sync data'),
-        subtitle: Text(_message ?? 'Keep Things and Clock up to date'),
-        trailing: IconButton(
-          tooltip: 'Sync now',
-          onPressed: _syncing ? null : _syncNow,
-          icon: _syncing
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: ListTile(
+          leading: const Icon(Icons.sync_outlined),
+          title: const Text('Sync data'),
+          subtitle: Text(_message ?? 'Keep Things and Clock up to date'),
+          trailing: needsLogin
+              ? TextButton.icon(
+                  onPressed: () async {
+                    await ref
+                        .read(authRepositoryProvider)
+                        .logout(widget.accountId);
+                    ref.invalidate(selectedAccountProvider);
+                    ref.invalidate(accountsProvider);
+                    if (context.mounted) context.go('/login');
+                  },
+                  icon: const Icon(Icons.login),
+                  label: const Text('Sign in'),
                 )
-              : const Icon(Icons.refresh),
+              : IconButton(
+                  tooltip: 'Sync now',
+                  onPressed: _syncing ? null : _syncNow,
+                  icon: _syncing
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                ),
         ),
       ),
     );
