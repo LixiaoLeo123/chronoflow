@@ -81,6 +81,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       ...blocks,
       if (liveBlock != null) liveBlock,
     ];
+    final showSelection = _selectedIds.isNotEmpty && !_dragActive;
 
     return Scaffold(
       appBar: AppBar(
@@ -106,17 +107,41 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
           ),
         ],
       ),
-      floatingActionButton: !_dragActive
+      floatingActionButton: !showSelection && !_dragActive
           ? FloatingActionButton.extended(
               onPressed: () => _addBlock(account.id),
               icon: const Icon(Icons.add),
               label: const Text('New event'),
             )
           : null,
-      body: Column(
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(child: _dialArea(account.id, _displayBlocks, activities)),
-          if (_selectedIds.isNotEmpty && !_dragActive) _selectionBar(context),
+          _dialArea(account.id, _displayBlocks, activities),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: SafeArea(
+              top: false,
+              child: IgnorePointer(
+                ignoring: !showSelection,
+                child: ExcludeSemantics(
+                  excluding: !showSelection,
+                  child: AnimatedSlide(
+                    offset: showSelection ? Offset.zero : const Offset(0, 1.2),
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedOpacity(
+                      opacity: showSelection ? 1 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: _selectionBar(context),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -543,6 +568,13 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surfaceContainerHigh,
+      elevation: 8,
+      shadowColor: Colors.black54,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
         child: Padding(
