@@ -151,7 +151,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                     onPanCancel: _onPointerCancel,
                     child: ValueListenableBuilder<int>(
                       valueListenable: _repaint,
-                      builder: (context, _, child) => CustomPaint(
+                      builder: (context, revision, child) => CustomPaint(
                         key: _clockKey,
                         painter: _ClockPainter(
                           blocks: blocks,
@@ -165,6 +165,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                           showDragRange: _dragMoved,
                           selectedDay: _selectedDay,
                           darkMode: darkMode,
+                          revision: revision,
                         ),
                       ),
                     ),
@@ -954,6 +955,7 @@ class _ClockPainter extends CustomPainter {
     required this.darkMode,
     required this.showDragRange,
     required this.selectedDay,
+    required this.revision,
   });
 
   final List<TimeBlock> blocks;
@@ -967,6 +969,7 @@ class _ClockPainter extends CustomPainter {
   final bool darkMode;
   final bool showDragRange;
   final DateTime selectedDay;
+  final int revision;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1203,5 +1206,6 @@ class _ClockPainter extends CustomPainter {
       oldDelegate.showDragRange != showDragRange ||
       oldDelegate.dragOuter != dragOuter ||
       oldDelegate.selectedDay != selectedDay ||
-      oldDelegate.darkMode != darkMode;
+      oldDelegate.darkMode != darkMode ||
+      oldDelegate.revision != revision;
 }
