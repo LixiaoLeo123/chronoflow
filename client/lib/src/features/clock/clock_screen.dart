@@ -140,29 +140,32 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                 alignment: Alignment.center,
                 fit: StackFit.expand,
                 children: [
-                  Listener(
+                  GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onPointerDown: (event) =>
-                        _onPointerDown(event.localPosition),
-                    onPointerMove: (event) =>
-                        _onPointerMove(event.localPosition),
-                    onPointerUp: (event) => _onPointerUp(event.localPosition),
-                    onPointerCancel: (_) => _onPointerCancel(),
-                    child: CustomPaint(
-                      key: _clockKey,
-                      painter: _ClockPainter(
-                        blocks: blocks,
-                        activities: activities,
-                        highlightedId: _hoveredId,
-                        selectedIds: _selectedIds,
-                        grow: _grow,
-                        dragOuter: _dragOuter,
-                        dragStartAngle: _dragStartAngle,
-                        dragEndAngle: _dragEndAngle,
-                        showDragRange: _dragMoved,
-                        selectedDay: _selectedDay,
-                        darkMode: darkMode,
-                        repaint: _repaint,
+                    onTapUp: (details) =>
+                        _openBlockAt(details.localPosition, _displayBlocks),
+                    onPanStart: (details) => _onPanStart(details.localPosition),
+                    onPanUpdate: (details) =>
+                        _onPanUpdate(details.localPosition),
+                    onPanEnd: (_) => _onPanEnd(),
+                    onPanCancel: _onPointerCancel,
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _repaint,
+                      builder: (context, _, child) => CustomPaint(
+                        key: _clockKey,
+                        painter: _ClockPainter(
+                          blocks: blocks,
+                          activities: activities,
+                          highlightedId: _hoveredId,
+                          selectedIds: _selectedIds,
+                          grow: _grow,
+                          dragOuter: _dragOuter,
+                          dragStartAngle: _dragStartAngle,
+                          dragEndAngle: _dragEndAngle,
+                          showDragRange: _dragMoved,
+                          selectedDay: _selectedDay,
+                          darkMode: darkMode,
+                        ),
                       ),
                     ),
                   ),
@@ -341,7 +344,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     }
   }
 
-  void _onPointerDown(Offset position) {
+  void _onPanStart(Offset position) {
     _dragStart = position;
     _dragMoved = false;
     _dragDir = 0;
@@ -350,21 +353,19 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     _dragStartAngle = _dialAngleAt(position);
     _dragOuter = _isOuterAt(position);
     _lastDragAngle = _dragStartAngle;
-    final hadSelection = _selectedIds.isNotEmpty;
-    final hadHover = _hoveredId != null;
     _selectedIds = {};
     _hoveredId = null;
     _hoverAnchor = null;
     _dragActive = true;
-    if (hadSelection || hadHover) setState(() {});
+    // Rebuild immediately so the FAB/selection actions cannot compete with
+    // the active gesture and the dial enters its drag state on the first move.
+    setState(() {});
     _animateGrow();
   }
 
-  void _onPointerMove(Offset position) {
+  void _onPanUpdate(Offset position) {
     if (_dragStart == null) return;
-    if (!_dragMoved && (position - _dragStart!).distance > 8) {
-      _dragMoved = true;
-    }
+    _dragMoved = true;
     final startAngle = _dragStartAngle;
     if (startAngle == null) return;
     final currentAngle = _dialAngleAt(position);
@@ -384,12 +385,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     }
     if (_dragDir != 0) {
       var next = _sweptMax + _dragDir * delta;
-      if (next < 0) {
-        // Once the range reaches its origin, continuing the same gesture in
-        // the opposite direction starts a new range on that side.
-        _dragDir = -_dragDir;
-        next = -next;
-      }
+      // A reversal retracts the current range. Once it reaches its origin,
+      // keep it there instead of silently switching to the opposite side.
       _sweptMax = next.clamp(0.0, 2 * math.pi).toDouble();
       _dragEndAngle = startAngle + _dragDir * _sweptMax;
     }
@@ -397,12 +394,14 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     final selectionChanged = !_sameIds(_selectedIds, nextSelection);
     if (selectionChanged) {
       setState(() => _selectedIds = nextSelection);
+    } else {
+      // Drag geometry changes even while the set of hit segments is stable.
+      // Repaint only the dial instead of rebuilding the whole screen.
+      _repaint.value++;
     }
   }
 
-  void _onPointerUp(Offset position) {
-    final current = position;
-    final moved = _dragMoved;
+  void _onPanEnd() {
     _dragStart = null;
     _dragStartAngle = null;
     _lastDragAngle = null;
@@ -410,11 +409,6 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     _sweptMax = 0;
     _dragActive = false;
     _dragMoved = false;
-    if (!moved) {
-      setState(() {});
-      _openBlockAt(current, _displayBlocks);
-      return;
-    }
     setState(() {});
   }
 
@@ -552,27 +546,40 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Icon(Icons.check_circle_outline, size: 18, color: scheme.primary),
-              const SizedBox(width: 8),
-              Text('${_selectedIds.length} selected'),
-              const Spacer(),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle_outline,
+                      size: 18, color: scheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    _selectedIds.length == 1
+                        ? '1 segment selected'
+                        : '${_selectedIds.length} segments selected',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
               if (_selectedIds.length == 1)
-                IconButton(
-                  tooltip: 'Edit selected segment',
+                FilledButton.icon(
                   onPressed: _editSelection,
                   icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Edit'),
                 ),
-              IconButton(
-                tooltip: 'Delete selected segments',
+              FilledButton.icon(
                 onPressed: _deleteSelection,
                 icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete'),
               ),
-              IconButton(
-                tooltip: 'Clear selection',
+              OutlinedButton.icon(
                 onPressed: _clearSelection,
                 icon: const Icon(Icons.close),
+                label: const Text('Clear'),
               ),
             ],
           ),
@@ -947,7 +954,6 @@ class _ClockPainter extends CustomPainter {
     required this.darkMode,
     required this.showDragRange,
     required this.selectedDay,
-    super.repaint,
   });
 
   final List<TimeBlock> blocks;
