@@ -241,7 +241,7 @@ def upsert_time_block(connection: sqlite3.Connection, account_id: str, item) -> 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Block end must be after start")
     overlap = connection.execute(
         "SELECT 1 FROM time_blocks WHERE account_id = ? AND id != ? "
-        "AND start_at < ? AND end_at > ? LIMIT 1",
+        "AND deleted = 0 AND start_at < ? AND end_at > ? LIMIT 1",
         (account_id, item.id, end.isoformat(), start.isoformat()),
     ).fetchone()
     if overlap and not item.deleted:

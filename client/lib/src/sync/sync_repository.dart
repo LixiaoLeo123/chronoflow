@@ -33,14 +33,13 @@ class SyncRepository {
   }
 
   Future<SyncBundle> localDelta(String accountId, DateTime? since) async {
+    // Send the complete account snapshot. The server applies timestamp-based
+    // last-write-wins, and a full snapshot lets a device repair a server that
+    // missed an older activity while still retaining a newer sync cursor.
     final activityQuery = _database.select(_database.activities)
       ..where((row) => row.accountId.equals(accountId));
     final blockQuery = _database.select(_database.timeBlocks)
       ..where((row) => row.accountId.equals(accountId));
-    if (since != null) {
-      activityQuery.where((row) => row.updatedAt.isBiggerThanValue(since));
-      blockQuery.where((row) => row.updatedAt.isBiggerThanValue(since));
-    }
     final activityRows = await activityQuery.get();
     final blockRows = await blockQuery.get();
     return SyncBundle(
