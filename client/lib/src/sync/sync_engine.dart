@@ -103,16 +103,15 @@ class SyncEngine {
       throw StateError('No authenticated session');
     }
     final sinceText = await _repository.cursor(accountId);
-    final local = await _repository.localDelta(
-        accountId, sinceText == null ? null : DateTime.parse(sinceText));
+    final local = await _repository.localDelta(accountId);
     Map<String, dynamic> response;
     try {
-      response = await _request(local);
+      response = await _request(sinceText, local);
     } on ApiException catch (error) {
       if (error.statusCode != 401) rethrow;
       _client.accessToken = null;
       if (!await _authRepository.ensureAccessToken(accountId)) rethrow;
-      response = await _request(local);
+      response = await _request(sinceText, local);
     }
     await _repository.applyServer(
       SyncBundle(
@@ -128,13 +127,10 @@ class SyncEngine {
     await _repository.saveCursor(accountId, response['syncCursor'] as String);
   }
 
-  Future<Map<String, dynamic>> _request(SyncBundle local) =>
+  Future<Map<String, dynamic>> _request(String? since, SyncBundle local) =>
       _client.sync({
-        // Always request the complete server snapshot. A device can have a
-        // clock ahead of the server (or have missed an earlier response), in
-        // which case an incremental cursor would permanently hide older rows.
-        // The payload is small and this guarantees both devices converge.
-        'since': null,
+        'since': since,
+        'fullActivities': true,
         'activities': local.activities.map((item) => item.toJson()).toList(),
         'timeBlocks': local.blocks.map((item) => item.toJson()).toList(),
       });

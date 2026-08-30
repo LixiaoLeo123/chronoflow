@@ -48,5 +48,6 @@ class TimeBlockSync(BaseModel):
 
 class SyncRequest(BaseModel):
     since: str | None = None
+    fullActivities: bool = False
     activities: list[ActivitySync] = Field(default_factory=list)
     timeBlocks: list[TimeBlockSync] = Field(default_factory=list)

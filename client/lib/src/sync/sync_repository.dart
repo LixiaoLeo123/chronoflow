@@ -32,7 +32,7 @@ class SyncRepository {
         '${blockRows.length}:${blockRows.firstOrNull?.updatedAt.toIso8601String()}';
   }
 
-  Future<SyncBundle> localDelta(String accountId, DateTime? since) async {
+  Future<SyncBundle> localDelta(String accountId) async {
     // Send the complete account snapshot. The server applies timestamp-based
     // last-write-wins, and a full snapshot lets a device repair a server that
     // missed an older activity while still retaining a newer sync cursor.

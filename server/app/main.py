@@ -195,11 +195,13 @@ def upsert_activity(connection: sqlite3.Connection, account_id: str, item) -> bo
         ).fetchone()
         if conflict and not item.archived:
             raise HTTPException(status.HTTP_409_CONFLICT, "Activity color already in use")
+    revision = _next_sync_revision(connection)
     connection.execute(
-        "INSERT INTO activities (id, account_id, name, color, archived, deleted, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        "INSERT INTO activities (id, account_id, name, color, archived, deleted, created_at, updated_at, sync_revision) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, "
-        "archived=excluded.archived, deleted=excluded.deleted, updated_at=excluded.updated_at",
+        "archived=excluded.archived, deleted=excluded.deleted, updated_at=excluded.updated_at, "
+        "sync_revision=excluded.sync_revision",
         (
             item.id,
             account_id,
@@ -209,6 +211,7 @@ def upsert_activity(connection: sqlite3.Connection, account_id: str, item) -> bo
             int(item.deleted),
             parse_datetime(item.createdAt, "createdAt").isoformat(),
             incoming_updated.isoformat(),
+            revision,
         ),
     )
     return True
@@ -246,13 +249,14 @@ def upsert_time_block(connection: sqlite3.Connection, account_id: str, item) -> 
     ).fetchone()
     if overlap and not item.deleted:
         raise HTTPException(status.HTTP_409_CONFLICT, "Time blocks overlap")
+    revision = _next_sync_revision(connection)
     connection.execute(
         "INSERT INTO time_blocks "
-        "(id, account_id, activity_id, kind, start_at, end_at, status, deleted, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "(id, account_id, activity_id, kind, start_at, end_at, status, deleted, created_at, updated_at, sync_revision) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET activity_id=excluded.activity_id, kind=excluded.kind, "
         "start_at=excluded.start_at, end_at=excluded.end_at, status=excluded.status, "
-        "deleted=excluded.deleted, updated_at=excluded.updated_at",
+        "deleted=excluded.deleted, updated_at=excluded.updated_at, sync_revision=excluded.sync_revision",
         (
             item.id,
             account_id,
@@ -260,13 +264,19 @@ def upsert_time_block(connection: sqlite3.Connection, account_id: str, item) -> 
             item.kind,
             start.isoformat(),
             end.isoformat(),
-        item.status,
-        int(item.deleted),
+            item.status,
+            int(item.deleted),
             parse_datetime(item.createdAt, "createdAt").isoformat(),
             incoming_updated.isoformat(),
+            revision,
         ),
     )
     return True
+
+
+def _next_sync_revision(connection: sqlite3.Connection) -> int:
+    connection.execute("UPDATE sync_sequence SET value = value + 1 WHERE id = 1")
+    return int(connection.execute("SELECT value FROM sync_sequence WHERE id = 1").fetchone()[0])
 
 
 @app.post("/v1/sync")
@@ -285,28 +295,49 @@ def sync(
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, "Sync conflict") from exc
 
-    since = parse_datetime(request.since, "since") if request.since else datetime.min.replace(tzinfo=timezone.utc)
-    activity_rows = connection.execute(
-        "SELECT * FROM activities WHERE account_id = ? AND updated_at > ? ORDER BY updated_at",
-        (account_id, since.isoformat()),
-    ).fetchall()
-    block_rows = connection.execute(
-        "SELECT * FROM time_blocks WHERE account_id = ? AND updated_at > ? ORDER BY updated_at",
-        (account_id, since.isoformat()),
-    ).fetchall()
-
-    # A cursor represents the newest row actually observed in this response.
-    # Do not advance it to wall-clock "now" when there are no changes: a
-    # client whose clock is slightly behind the server could then skip its
-    # next local write because local deltas are filtered by this cursor.
-    cursor = since.isoformat() if request.since else iso_utc()
-    if activity_rows or block_rows:
-        timestamps = [
-            rows[-1]["updated_at"]
-            for rows in (activity_rows, block_rows)
-            if rows
-        ]
-        cursor = max(timestamps)
+    since_revision: int | None = None
+    since: datetime | None = None
+    if request.since:
+        if request.since.startswith("r:"):
+            try:
+                since_revision = int(request.since[2:])
+            except ValueError as exc:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid since cursor") from exc
+        else:
+            # Accept cursors from older clients during the rollout.
+            since = parse_datetime(request.since, "since")
+    if request.fullActivities or (since_revision is None and since is None):
+        activity_rows = connection.execute(
+            "SELECT * FROM activities WHERE account_id = ? ORDER BY sync_revision, updated_at",
+            (account_id,),
+        ).fetchall()
+    elif since_revision is not None:
+        activity_rows = connection.execute(
+            "SELECT * FROM activities WHERE account_id = ? AND sync_revision > ? ORDER BY sync_revision",
+            (account_id, since_revision),
+        ).fetchall()
+    else:
+        activity_rows = connection.execute(
+            "SELECT * FROM activities WHERE account_id = ? AND updated_at > ? ORDER BY updated_at",
+            (account_id, since.isoformat()),
+        ).fetchall()
+    if since_revision is not None:
+        block_rows = connection.execute(
+            "SELECT * FROM time_blocks WHERE account_id = ? AND sync_revision > ? ORDER BY sync_revision",
+            (account_id, since_revision),
+        ).fetchall()
+    elif since is not None:
+        block_rows = connection.execute(
+            "SELECT * FROM time_blocks WHERE account_id = ? AND updated_at > ? ORDER BY updated_at",
+            (account_id, since.isoformat()),
+        ).fetchall()
+    else:
+        block_rows = connection.execute(
+            "SELECT * FROM time_blocks WHERE account_id = ? ORDER BY sync_revision, updated_at",
+            (account_id,),
+        ).fetchall()
+    current_revision = int(connection.execute("SELECT value FROM sync_sequence WHERE id = 1").fetchone()[0])
+    cursor = f"r:{current_revision}"
     return {
         "accepted": changed,
         "syncCursor": cursor,
