@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -24,30 +23,41 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     with SingleTickerProviderStateMixin {
   final GlobalKey _clockKey = GlobalKey();
   final ValueNotifier<int> _repaint = ValueNotifier<int>(0);
-  Ticker? _growTicker;
+  late final AnimationController _growController;
   final Map<String, double> _grow = {};
+  Map<String, double> _growFrom = {};
+  Map<String, double> _growTo = {};
 
   /// Set during [build] so gesture handlers can reuse the current blocks.
   List<TimeBlock> _displayBlocks = const [];
   String? _hoveredId;
+  Offset? _hoverAnchor;
   DateTime _selectedDay = _dateOnly(DateTime.now());
 
-  bool _selectMode = false;
   bool _dragActive = false;
+  bool _dragMoved = false;
+  bool _editorOpen = false;
   Offset? _dragStart;
-  Offset? _dragCurrent;
   bool _dragOuter = false;
   double? _dragStartAngle;
   double? _lastDragAngle;
   double _dragEndAngle = 0;
   int _dragDir = 0;
   double _sweptMax = 0;
-  final Stopwatch _dragWatch = Stopwatch();
   Set<String> _selectedIds = {};
 
   @override
+  void initState() {
+    super.initState();
+    _growController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    )..addListener(_tickGrow);
+  }
+
+  @override
   void dispose() {
-    _growTicker?.dispose();
+    _growController.dispose();
     _repaint.dispose();
     super.dispose();
   }
@@ -85,6 +95,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
               onPressed: () => setState(() {
                 _selectedDay = _dateOnly(DateTime.now());
                 _hoveredId = null;
+                _hoverAnchor = null;
                 _selectedIds = {};
               }),
             ),
@@ -93,14 +104,9 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
             icon: const Icon(Icons.calendar_month_outlined),
             onPressed: _pickDay,
           ),
-          IconButton(
-            tooltip: _selectMode ? 'Stop selecting' : 'Select segments',
-            icon: Icon(_selectMode ? Icons.close : Icons.select_all),
-            onPressed: _toggleSelectMode,
-          ),
         ],
       ),
-      floatingActionButton: !_selectMode && !_dragActive
+      floatingActionButton: !_dragActive
           ? FloatingActionButton.extended(
               onPressed: () => _addBlock(account.id),
               icon: const Icon(Icons.add),
@@ -110,8 +116,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       body: Column(
         children: [
           Expanded(child: _dialArea(account.id, _displayBlocks, activities)),
-          if (_selectMode && _selectedIds.isNotEmpty && !_dragActive)
-            _selectionBar(context),
+          if (_selectedIds.isNotEmpty && !_dragActive) _selectionBar(context),
         ],
       ),
     );
@@ -135,14 +140,14 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                 alignment: Alignment.center,
                 fit: StackFit.expand,
                 children: [
-                  GestureDetector(
+                  Listener(
                     behavior: HitTestBehavior.opaque,
-                    onTapUp: (details) =>
-                        _openBlockAt(details.localPosition, blocks),
-                    onPanStart: _onPanStart,
-                    onPanUpdate: _onPanUpdate,
-                    onPanEnd: (_) => _onPanEnd(),
-                    onPanCancel: _onPanEnd,
+                    onPointerDown: (event) =>
+                        _onPointerDown(event.localPosition),
+                    onPointerMove: (event) =>
+                        _onPointerMove(event.localPosition),
+                    onPointerUp: (event) => _onPointerUp(event.localPosition),
+                    onPointerCancel: (_) => _onPointerCancel(),
                     child: CustomPaint(
                       key: _clockKey,
                       painter: _ClockPainter(
@@ -154,6 +159,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                         dragOuter: _dragOuter,
                         dragStartAngle: _dragStartAngle,
                         dragEndAngle: _dragEndAngle,
+                        showDragRange: _dragMoved,
                         selectedDay: _selectedDay,
                         darkMode: darkMode,
                         repaint: _repaint,
@@ -185,7 +191,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                 BlockKind.shortBreak => 'Short break',
                 BlockKind.longBreak => 'Long break',
               });
-    return AnimatedSwitcher(
+    final chip = AnimatedSwitcher(
       duration: const Duration(milliseconds: 280),
       reverseDuration: const Duration(milliseconds: 180),
       switchInCurve: Curves.easeOutBack,
@@ -220,7 +226,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
               ),
               child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 child: Text(
                   label,
                   style: Theme.of(context)
@@ -230,6 +236,23 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                 ),
               ),
             ),
+    );
+    return Positioned.fill(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final position = _hoverAnchor;
+          if (position == null) return chip;
+          const width = 190.0;
+          final left = (position.dx + 14)
+              .clamp(4.0, math.max(4.0, constraints.maxWidth - width - 4))
+              .toDouble();
+          final top = (position.dy - 30)
+              .clamp(4.0, math.max(4.0, constraints.maxHeight - 48))
+              .toDouble();
+          return Stack(
+              children: [Positioned(left: left, top: top, child: chip)]);
+        },
+      ),
     );
   }
 
@@ -268,95 +291,83 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     );
   }
 
-  // --- Selection mode ------------------------------------------------------
+  // --- Selection animation -------------------------------------------------
 
-  void _toggleSelectMode() {
-    setState(() {
-      _selectMode = !_selectMode;
-      if (!_selectMode) _selectedIds = {};
-    });
-    _ensureGrowTicker();
-  }
-
-  void _ensureGrowTicker() {
-    _growTicker ??= createTicker(_tickGrow)..start();
-  }
-
-  void _tickGrow(Duration _) {
+  void _animateGrow() {
     final targets = <String, double>{
       for (final block in _displayBlocks)
-        block.id: _selectedIds.contains(block.id)
-            ? 1.0
-            : (block.id == _hoveredId ? 0.35 : 0.0),
+        block.id: block.id == _hoveredId ? 0.65 : 0.0,
     };
-    var settling = true;
-    for (final MapEntry(:key, :value) in targets.entries) {
-      final current = _grow[key] ?? 0.0;
-      final next = current + (value - current) * 0.25;
-      if ((next - value).abs() > 0.004) settling = false;
-      _grow[key] = next;
+    final ids = {..._grow.keys, ...targets.keys};
+    _growFrom = {for (final id in ids) id: _grow[id] ?? 0.0};
+    _growTo = {for (final id in ids) id: targets[id] ?? 0.0};
+    _growController.forward(from: 0);
+  }
+
+  void _tickGrow() {
+    final progress = Curves.easeOutCubic.transform(_growController.value);
+    final ids = {..._growFrom.keys, ..._growTo.keys};
+    for (final id in ids) {
+      final from = _growFrom[id] ?? 0.0;
+      final to = _growTo[id] ?? 0.0;
+      _grow[id] = from + (to - from) * progress;
     }
-    final stale = _grow.keys.where((id) => !targets.containsKey(id)).toList();
-    for (final id in stale) {
-      final next = (_grow[id] ?? 0.0) * 0.75;
-      if (next.abs() < 0.004) {
-        _grow.remove(id);
-      } else {
-        _grow[id] = next;
-        settling = false;
-      }
-    }
+    _grow.removeWhere(
+        (id, value) => value.abs() < 0.001 && (_growTo[id] ?? 0).abs() < 0.001);
     _repaint.value++;
-    if (settling) {
-      _growTicker?.stop();
-      _growTicker?.dispose();
-      _growTicker = null;
-    }
   }
 
   // --- Pointer handling ----------------------------------------------------
 
   void _onHover(Offset position, List<TimeBlock> blocks) {
     if (_dragActive) return;
-    final id = _blockAt(position, blocks)?.id;
+    final block = _blockAt(position, blocks);
+    final id = block?.id;
     if (id != _hoveredId) {
-      setState(() => _hoveredId = id);
-      _ensureGrowTicker();
+      setState(() {
+        _hoveredId = id;
+        _hoverAnchor = block == null ? _hoverAnchor : _segmentAnchor(block);
+      });
+      _animateGrow();
     }
   }
 
   void _onHoverExit() {
     if (_hoveredId != null) {
-      setState(() => _hoveredId = null);
-      _ensureGrowTicker();
+      setState(() {
+        _hoveredId = null;
+      });
+      _animateGrow();
     }
   }
 
-  void _onPanStart(DragStartDetails details) {
-    _dragStart = details.localPosition;
-    _dragCurrent = details.localPosition;
+  void _onPointerDown(Offset position) {
+    _dragStart = position;
+    _dragMoved = false;
     _dragDir = 0;
     _sweptMax = 0;
     _dragEndAngle = 0;
-    _dragStartAngle = _dialAngleAt(details.localPosition);
-    _dragOuter = _isOuterAt(details.localPosition);
+    _dragStartAngle = _dialAngleAt(position);
+    _dragOuter = _isOuterAt(position);
     _lastDragAngle = _dragStartAngle;
-    _dragWatch
-      ..reset()
-      ..start();
     final hadSelection = _selectedIds.isNotEmpty;
+    final hadHover = _hoveredId != null;
     _selectedIds = {};
+    _hoveredId = null;
+    _hoverAnchor = null;
     _dragActive = true;
-    if (hadSelection || _selectMode) setState(() {});
-    if (_selectMode) _ensureGrowTicker();
+    if (hadSelection || hadHover) setState(() {});
+    _animateGrow();
   }
 
-  void _onPanUpdate(DragUpdateDetails details) {
+  void _onPointerMove(Offset position) {
     if (_dragStart == null) return;
-    _dragCurrent = details.localPosition;
+    if (!_dragMoved && (position - _dragStart!).distance > 8) {
+      _dragMoved = true;
+    }
     final startAngle = _dragStartAngle;
     if (startAngle == null) return;
-    final currentAngle = _dialAngleAt(details.localPosition);
+    final currentAngle = _dialAngleAt(position);
     if (currentAngle == null) return;
     final previousAngle = _lastDragAngle ?? startAngle;
     var delta = currentAngle - previousAngle;
@@ -372,53 +383,65 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       _dragDir = delta > 0 ? 1 : -1;
     }
     if (_dragDir != 0) {
-      _sweptMax =
-          (_sweptMax + _dragDir * delta).clamp(0.0, 2 * math.pi).toDouble();
+      var next = _sweptMax + _dragDir * delta;
+      if (next < 0) {
+        // Once the range reaches its origin, continuing the same gesture in
+        // the opposite direction starts a new range on that side.
+        _dragDir = -_dragDir;
+        next = -next;
+      }
+      _sweptMax = next.clamp(0.0, 2 * math.pi).toDouble();
       _dragEndAngle = startAngle + _dragDir * _sweptMax;
     }
-    setState(() {
-      _selectedIds = _blocksInDragRange();
-    });
-    if (_selectMode) _ensureGrowTicker();
+    final nextSelection = _blocksInDragRange();
+    final selectionChanged = !_sameIds(_selectedIds, nextSelection);
+    if (selectionChanged) {
+      setState(() => _selectedIds = nextSelection);
+    }
   }
 
-  void _onPanEnd() {
-    final wasQuick = _dragWatch.elapsed < const Duration(milliseconds: 400);
-    final current = _dragCurrent;
+  void _onPointerUp(Offset position) {
+    final current = position;
+    final moved = _dragMoved;
     _dragStart = null;
-    _dragCurrent = null;
     _dragStartAngle = null;
     _lastDragAngle = null;
     _dragEndAngle = 0;
     _sweptMax = 0;
-    _dragWatch.stop();
     _dragActive = false;
-    if (wasQuick && current != null) {
-      // A click with a bit of jitter: behave like a tap.
+    _dragMoved = false;
+    if (!moved) {
       setState(() {});
       _openBlockAt(current, _displayBlocks);
       return;
     }
     setState(() {});
-    if (_selectMode) _ensureGrowTicker();
   }
 
-  void _openBlockAt(Offset position, List<TimeBlock> blocks) {
-    if (_selectMode) {
-      final found = _blockAt(position, blocks);
-      if (found != null && found.id != _liveBlockId) {
-        setState(() {
-          if (!_selectedIds.add(found.id)) _selectedIds.remove(found.id);
-        });
-        _ensureGrowTicker();
-      } else {
-        _clearSelection();
-      }
-      return;
-    }
+  void _onPointerCancel() {
+    _dragStart = null;
+    _dragStartAngle = null;
+    _lastDragAngle = null;
+    _dragEndAngle = 0;
+    _sweptMax = 0;
+    _dragActive = false;
+    _dragMoved = false;
+    setState(() {});
+  }
+
+  bool _sameIds(Set<String> a, Set<String> b) =>
+      a.length == b.length && a.containsAll(b);
+
+  Future<void> _openBlockAt(Offset position, List<TimeBlock> blocks) async {
+    if (_editorOpen) return;
     final found = _blockAt(position, blocks);
     if (found == null) return;
-    _openEditor(found);
+    _editorOpen = true;
+    try {
+      await _openEditor(found);
+    } finally {
+      _editorOpen = false;
+    }
   }
 
   Set<String> _blocksInDragRange() {
@@ -428,11 +451,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     final lo = math.min(startAngle, endAngle);
     final hi = math.max(startAngle, endAngle);
     final fullRing = _sweptMax >= 2 * math.pi - 0.01;
-    final account = ref.read(selectedAccountProvider).value;
-    if (account == null) return {};
-    final blocks =
-        (ref.read(timeBlocksProvider(account.id)).value ?? const <TimeBlock>[])
-            .where((block) => !block.deleted);
+    final blocks = _displayBlocks.where((block) => !block.deleted);
     final dayStart = _selectedDay;
     final selected = <String>{};
     for (final block in blocks) {
@@ -477,19 +496,52 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
 
   void _clearSelection() {
     setState(() => _selectedIds = {});
-    _ensureGrowTicker();
+    _animateGrow();
   }
 
   Future<void> _deleteSelection() async {
     final account = ref.read(selectedAccountProvider).value;
     if (account == null || _selectedIds.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete selected segments?'),
+        content: Text('This will delete ${_selectedIds.length} segment(s).'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     final repository = ref.read(blockRepositoryProvider);
     final ids = _selectedIds.toList();
     for (final id in ids) {
       await repository.delete(account.id, id);
     }
     if (mounted) setState(() => _selectedIds = {});
-    if (mounted) _ensureGrowTicker();
+    if (mounted) _animateGrow();
+  }
+
+  Future<void> _editSelection() async {
+    if (_selectedIds.length != 1 || _editorOpen) return;
+    final id = _selectedIds.single;
+    final block = _displayBlocks.where((item) => item.id == id).firstOrNull;
+    if (block == null) return;
+    setState(() => _selectedIds = {});
+    _animateGrow();
+    _editorOpen = true;
+    try {
+      await _openEditor(block);
+    } finally {
+      _editorOpen = false;
+    }
   }
 
   Widget _selectionBar(BuildContext context) {
@@ -502,19 +554,25 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: Row(
             children: [
-              Icon(Icons.select_all, size: 18, color: scheme.primary),
+              Icon(Icons.check_circle_outline, size: 18, color: scheme.primary),
               const SizedBox(width: 8),
-              Text('${_selectedIds.length} segment(s)'),
+              Text('${_selectedIds.length} selected'),
               const Spacer(),
-              TextButton(
-                onPressed: _toggleSelectMode,
-                child: const Text('Done'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
+              if (_selectedIds.length == 1)
+                IconButton(
+                  tooltip: 'Edit selected segment',
+                  onPressed: _editSelection,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+              IconButton(
+                tooltip: 'Delete selected segments',
                 onPressed: _deleteSelection,
                 icon: const Icon(Icons.delete_outline),
-                label: const Text('Delete'),
+              ),
+              IconButton(
+                tooltip: 'Clear selection',
+                onPressed: _clearSelection,
+                icon: const Icon(Icons.close),
               ),
             ],
           ),
@@ -601,6 +659,29 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     return nearest;
   }
 
+  Offset? _segmentAnchor(TimeBlock block) {
+    final metrics = _metrics();
+    if (metrics == null) return null;
+    final dayEnd = _selectedDay.add(const Duration(days: 1));
+    final start = block.start.toLocal().isAfter(_selectedDay)
+        ? block.start.toLocal()
+        : _selectedDay;
+    final end =
+        block.end.toLocal().isBefore(dayEnd) ? block.end.toLocal() : dayEnd;
+    if (!end.isAfter(start)) return null;
+    final midpoint = start
+        .add(Duration(milliseconds: end.difference(start).inMilliseconds ~/ 2));
+    final outer =
+        !midpoint.isBefore(_selectedDay.add(const Duration(hours: 12)));
+    final ringStart =
+        outer ? _selectedDay.add(const Duration(hours: 12)) : _selectedDay;
+    final fraction = midpoint.difference(ringStart).inMilliseconds /
+        const Duration(hours: 12).inMilliseconds;
+    final angle = fraction * 2 * math.pi - math.pi / 2;
+    final radius = outer ? metrics.outer : metrics.inner;
+    return metrics.center + Offset(math.cos(angle), math.sin(angle)) * radius;
+  }
+
   Future<void> _pickDay() async {
     final picked = await showDatePicker(
       context: context,
@@ -612,9 +693,10 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     setState(() {
       _selectedDay = _dateOnly(picked);
       _hoveredId = null;
+      _hoverAnchor = null;
       _selectedIds = {};
     });
-    _ensureGrowTicker();
+    _animateGrow();
   }
 
   bool _isToday(DateTime day) {
@@ -646,39 +728,23 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       _showBlockEditor(context: context, accountId: accountId, block: null);
 
   Future<void> _showLiveEditor(String accountId) async {
-    final result = await showModalBottomSheet<Object?>(
+    final result = await showDialog<Object?>(
       context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Live recording',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            const Text(
-                'This arc records the running focus timer. Deleting it cuts '
-                'the recording here — it keeps growing from this moment.'),
-            const SizedBox(height: 16),
-            Row(children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(sheetContext, 'delete'),
-                  child: const Text('Delete & keep recording'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: () => Navigator.pop(sheetContext, false),
-                  child: const Text('Close'),
-                ),
-              ),
-            ]),
-          ],
-        ),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Live recording'),
+        content: const Text(
+            'This arc records the running focus timer. Deleting it cuts '
+            'the recording here — it keeps growing from this moment.'),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialogContext, 'delete'),
+            child: const Text('Delete & keep recording'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
     if (result != 'delete') return;
@@ -704,109 +770,115 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     var end = block?.end.toLocal() ?? start.add(const Duration(minutes: 25));
     var activityId = block?.activityId ?? activities.firstOrNull?.id ?? '';
     var kind = block?.kind ?? BlockKind.focus;
-    final saved = await showModalBottomSheet<Object?>(
+    final saved = await showDialog<Object?>(
       context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setState) => Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(block == null ? 'New event' : 'Edit event',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String?>(
-                initialValue: activityId,
-                decoration: const InputDecoration(labelText: 'Activity'),
-                items: [
-                  for (final activity in activities)
-                    DropdownMenuItem(
-                        value: activity.id, child: Text(activity.name)),
-                ],
-                onChanged: (String? value) =>
-                    setState(() => activityId = value ?? activityId),
-              ),
-              if (activities.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Create a thing on the Things tab first.',
-                    style: Theme.of(context).textTheme.bodySmall,
+        builder: (context, setState) => Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480, maxHeight: 680),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(block == null ? 'New event' : 'Edit event',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String?>(
+                    initialValue: activityId,
+                    decoration: const InputDecoration(labelText: 'Activity'),
+                    items: [
+                      for (final activity in activities)
+                        DropdownMenuItem(
+                            value: activity.id, child: Text(activity.name)),
+                    ],
+                    onChanged: (String? value) =>
+                        setState(() => activityId = value ?? activityId),
                   ),
-                ),
-              const SizedBox(height: 12),
-              SegmentedButton<BlockKind>(
-                segments: const [
-                  ButtonSegment(value: BlockKind.focus, label: Text('Focus')),
-                  ButtonSegment(
-                      value: BlockKind.shortBreak, label: Text('Short')),
-                  ButtonSegment(
-                      value: BlockKind.longBreak, label: Text('Long')),
-                ],
-                selected: {kind},
-                onSelectionChanged: (value) =>
-                    setState(() => kind = value.first),
-              ),
-              const SizedBox(height: 12),
-              Text('Start: ${TimeOfDay.fromDateTime(start).format(context)}'),
-              Slider(
-                value: _minuteOfDay(start).toDouble(),
-                min: 0,
-                max: 1435,
-                divisions: 287,
-                onChanged: (value) => setState(() {
-                  final day = DateTime(start.year, start.month, start.day);
-                  start = day.add(Duration(minutes: value.round()));
-                  if (!end.isAfter(start)) {
-                    end = start.add(const Duration(minutes: 5));
-                  }
-                }),
-              ),
-              Text('End: ${TimeOfDay.fromDateTime(end).format(context)}'),
-              Slider(
-                value: _minuteOfDay(end).toDouble(),
-                min: 0,
-                max: 1440,
-                divisions: 288,
-                onChanged: (value) => setState(() {
-                  final day = DateTime(start.year, start.month, start.day);
-                  end = day.add(Duration(minutes: value.round()));
-                  if (!end.isAfter(start)) {
-                    end = start.add(const Duration(minutes: 5));
-                  }
-                }),
-              ),
-              const SizedBox(height: 16),
-              Row(children: [
-                if (block != null) ...[
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(sheetContext, 'delete'),
-                      child: const Text('Delete'),
+                  if (activities.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        'Create a thing on the Things tab first.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<BlockKind>(
+                    segments: const [
+                      ButtonSegment(
+                          value: BlockKind.focus, label: Text('Focus')),
+                      ButtonSegment(
+                          value: BlockKind.shortBreak, label: Text('Short')),
+                      ButtonSegment(
+                          value: BlockKind.longBreak, label: Text('Long')),
+                    ],
+                    selected: {kind},
+                    onSelectionChanged: (value) =>
+                        setState(() => kind = value.first),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(height: 12),
+                  Text(
+                      'Start: ${TimeOfDay.fromDateTime(start).format(context)}'),
+                  Slider(
+                    value: _minuteOfDay(start).toDouble(),
+                    min: 0,
+                    max: 1435,
+                    divisions: 287,
+                    onChanged: (value) => setState(() {
+                      final day = DateTime(start.year, start.month, start.day);
+                      start = day.add(Duration(minutes: value.round()));
+                      if (!end.isAfter(start)) {
+                        end = start.add(const Duration(minutes: 5));
+                      }
+                    }),
+                  ),
+                  Text('End: ${TimeOfDay.fromDateTime(end).format(context)}'),
+                  Slider(
+                    value: _minuteOfDay(end).toDouble(),
+                    min: 0,
+                    max: 1440,
+                    divisions: 288,
+                    onChanged: (value) => setState(() {
+                      final day = DateTime(start.year, start.month, start.day);
+                      end = day.add(Duration(minutes: value.round()));
+                      if (!end.isAfter(start)) {
+                        end = start.add(const Duration(minutes: 5));
+                      }
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(children: [
+                    if (block != null) ...[
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              Navigator.pop(sheetContext, 'delete'),
+                          child: const Text('Delete'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(sheetContext, false),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: activityId.isEmpty
+                            ? null
+                            : () => Navigator.pop(sheetContext, true),
+                        child: const Text('Save'),
+                      ),
+                    ),
+                  ]),
                 ],
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(sheetContext, false),
-                    child: const Text('Cancel'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: activityId.isEmpty
-                        ? null
-                        : () => Navigator.pop(sheetContext, true),
-                    child: const Text('Save'),
-                  ),
-                ),
-              ]),
-            ],
+              ),
+            ),
           ),
         ),
       ),
@@ -873,6 +945,7 @@ class _ClockPainter extends CustomPainter {
     this.dragStartAngle,
     this.dragEndAngle = 0,
     required this.darkMode,
+    required this.showDragRange,
     required this.selectedDay,
     super.repaint,
   });
@@ -886,6 +959,7 @@ class _ClockPainter extends CustomPainter {
   final double? dragStartAngle;
   final double dragEndAngle;
   final bool darkMode;
+  final bool showDragRange;
   final DateTime selectedDay;
 
   @override
@@ -899,7 +973,7 @@ class _ClockPainter extends CustomPainter {
     _drawTrack(canvas, center, innerRadius, outerRadius, strokeWidth);
     _drawTicks(canvas, center, innerRadius, outerRadius, strokeWidth);
     _drawLabels(canvas, center, innerRadius, outerRadius);
-    if (dragStartAngle != null) {
+    if (showDragRange && dragStartAngle != null) {
       _drawDragRange(canvas, center, innerRadius, outerRadius, strokeWidth);
     }
 
@@ -1014,30 +1088,9 @@ class _ClockPainter extends CustomPainter {
     Color color, {
     required bool isLive,
   }) {
-    final growValue = grow[block.id] ?? 0.0;
-    if (growValue > 0.001) {
-      // Scale the complete arc around the dial centre so its proportions stay
-      // intact. Increasing only strokeWidth makes a segment look stretched.
-      final scale = 1 + growValue * 0.12;
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.scale(scale);
-      canvas.translate(-center.dx, -center.dy);
-      _strokeSegments(
-        canvas,
-        center,
-        innerRadius,
-        outerRadius,
-        block,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = isLive ? strokeWidth + 2 : strokeWidth
-          ..strokeCap = StrokeCap.butt
-          ..color = color,
-      );
-      canvas.restore();
-      return;
-    }
+    final growValue =
+        selectedIds.contains(block.id) ? 1.0 : (grow[block.id] ?? 0.0);
+    final scale = 1 + growValue * 0.22;
     _strokeSegments(
       canvas,
       center,
@@ -1049,11 +1102,13 @@ class _ClockPainter extends CustomPainter {
         ..strokeWidth = isLive ? strokeWidth + 2 : strokeWidth
         ..strokeCap = StrokeCap.butt
         ..color = color,
+      scale: scale,
     );
   }
 
   void _strokeSegments(Canvas canvas, Offset center, double innerRadius,
-      double outerRadius, TimeBlock block, Paint paint) {
+      double outerRadius, TimeBlock block, Paint paint,
+      {double scale = 1}) {
     final dayEnd = selectedDay.add(const Duration(days: 1));
     var cursor = block.start.toLocal().isAfter(selectedDay)
         ? block.start.toLocal()
@@ -1064,14 +1119,21 @@ class _ClockPainter extends CustomPainter {
     while (cursor.isBefore(end)) {
       final nextMidnight = DateTime(cursor.year, cursor.month, cursor.day + 1);
       final segmentEnd = nextMidnight.isBefore(end) ? nextMidnight : end;
-      _drawSegment(
-          canvas, center, innerRadius, outerRadius, cursor, segmentEnd, paint);
+      _drawSegment(canvas, center, innerRadius, outerRadius, cursor, segmentEnd,
+          paint, scale);
       cursor = segmentEnd;
     }
   }
 
-  void _drawSegment(Canvas canvas, Offset center, double innerRadius,
-      double outerRadius, DateTime start, DateTime end, Paint paint) {
+  void _drawSegment(
+      Canvas canvas,
+      Offset center,
+      double innerRadius,
+      double outerRadius,
+      DateTime start,
+      DateTime end,
+      Paint paint,
+      double scale) {
     for (final piece in _splitAtNoon(start, end)) {
       final inner = piece.$1.hour < 12;
       final radius = inner ? innerRadius : outerRadius;
@@ -1082,6 +1144,16 @@ class _ClockPainter extends CustomPainter {
           2 *
           math.pi;
       if (sweep <= 0) continue;
+      final midpoint = piece.$1.add(Duration(
+          milliseconds: piece.$2.difference(piece.$1).inMilliseconds ~/ 2));
+      final midpointAngle =
+          _fractionOnRing(midpoint, inner) * 2 * math.pi - math.pi / 2;
+      final anchor = center +
+          Offset(math.cos(midpointAngle), math.sin(midpointAngle)) * radius;
+      canvas.save();
+      canvas.translate(anchor.dx, anchor.dy);
+      canvas.scale(scale);
+      canvas.translate(-anchor.dx, -anchor.dy);
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         startAngle,
@@ -1089,6 +1161,7 @@ class _ClockPainter extends CustomPainter {
         false,
         paint,
       );
+      canvas.restore();
     }
   }
 
@@ -1121,6 +1194,7 @@ class _ClockPainter extends CustomPainter {
       oldDelegate.selectedIds != selectedIds ||
       oldDelegate.dragStartAngle != dragStartAngle ||
       oldDelegate.dragEndAngle != dragEndAngle ||
+      oldDelegate.showDragRange != showDragRange ||
       oldDelegate.dragOuter != dragOuter ||
       oldDelegate.selectedDay != selectedDay ||
       oldDelegate.darkMode != darkMode;
