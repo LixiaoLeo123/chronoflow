@@ -16,6 +16,12 @@ class ChronoflowTheme {
           ? const Color(0xFFF7F8FC)
           : const Color(0xFF10141D),
       appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: brightness == Brightness.light
+            ? const Color(0xFFF7F8FC)
+            : const Color(0xFF10141D),
+        elevation: 0,
+      ),
       cardTheme: CardThemeData(
         elevation: 0,
         color: colorScheme.surfaceContainerHighest.withAlpha(120),

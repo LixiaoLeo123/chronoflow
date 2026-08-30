@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -27,6 +28,24 @@ class ChronoflowApp extends ConsumerWidget {
       theme: ChronoflowTheme.light(),
       darkTheme: ChronoflowTheme.dark(),
       routerConfig: _router(account),
+      builder: (context, child) {
+        final theme = Theme.of(context);
+        final dark = theme.brightness == Brightness.dark;
+        final navigationColor = theme.navigationBarTheme.backgroundColor ??
+            theme.scaffoldBackgroundColor;
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+            systemNavigationBarColor: navigationColor,
+            systemNavigationBarDividerColor: navigationColor,
+            systemNavigationBarIconBrightness:
+                dark ? Brightness.light : Brightness.dark,
+            systemNavigationBarContrastEnforced: false,
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }
@@ -127,10 +146,14 @@ class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
     final wide = MediaQuery.sizeOf(context).width >= 900;
     const destinations = [
       NavigationDestination(icon: Icon(Icons.timer_outlined), label: 'Timer'),
-      NavigationDestination(icon: Icon(Icons.schedule_outlined), label: 'Clock'),
-      NavigationDestination(icon: Icon(Icons.insights_outlined), label: 'Summary'),
-      NavigationDestination(icon: Icon(Icons.category_outlined), label: 'Things'),
-      NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
+      NavigationDestination(
+          icon: Icon(Icons.schedule_outlined), label: 'Clock'),
+      NavigationDestination(
+          icon: Icon(Icons.insights_outlined), label: 'Summary'),
+      NavigationDestination(
+          icon: Icon(Icons.category_outlined), label: 'Things'),
+      NavigationDestination(
+          icon: Icon(Icons.settings_outlined), label: 'Settings'),
     ];
     final navigation = wide
         ? NavigationRail(
@@ -162,6 +185,7 @@ class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
           ? NavigationBar(
               selectedIndex: widget.shell.currentIndex,
               onDestinationSelected: widget.shell.goBranch,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
               destinations: destinations,
             )
           : null,
