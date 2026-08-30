@@ -25,6 +25,10 @@ class SettingsScreen extends ConsumerWidget {
               accountId: account?.id,
               enabled: account != null,
             ),
+            if (account != null) ...[
+              const SizedBox(height: 16),
+              _SyncCard(accountId: account.id),
+            ],
             if (account?.role == 'admin') ...[
               const SizedBox(height: 16),
               _InvitationCard(accountId: account?.id),
@@ -76,6 +80,57 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncCard extends ConsumerStatefulWidget {
+  const _SyncCard({required this.accountId});
+
+  final String accountId;
+
+  @override
+  ConsumerState<_SyncCard> createState() => _SyncCardState();
+}
+
+class _SyncCardState extends ConsumerState<_SyncCard> {
+  bool _syncing = false;
+  String? _message;
+
+  Future<void> _syncNow() async {
+    if (_syncing) return;
+    setState(() {
+      _syncing = true;
+      _message = null;
+    });
+    final success =
+        await ref.read(syncCoordinatorProvider).synchronize(force: true);
+    if (!mounted) return;
+    setState(() {
+      _syncing = false;
+      _message = success ? 'Synced just now' : 'Sync failed; try again later';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.sync_outlined),
+        title: const Text('Sync data'),
+        subtitle: Text(_message ?? 'Keep Things and Clock up to date'),
+        trailing: IconButton(
+          tooltip: 'Sync now',
+          onPressed: _syncing ? null : _syncNow,
+          icon: _syncing
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh),
         ),
       ),
     );
@@ -148,8 +203,8 @@ class _TimerSettingsCard extends ConsumerWidget {
                     title: const Text('Auto-start breaks'),
                     value: value.autoStartBreaks,
                     onChanged: enabled
-                        ? (autoStartBreaks) =>
-                            _save(ref, value.copyWith(autoStartBreaks: autoStartBreaks))
+                        ? (autoStartBreaks) => _save(ref,
+                            value.copyWith(autoStartBreaks: autoStartBreaks))
                         : null,
                   ),
                   SwitchListTile(
@@ -157,8 +212,8 @@ class _TimerSettingsCard extends ConsumerWidget {
                     title: const Text('Auto-start focus'),
                     value: value.autoStartFocus,
                     onChanged: enabled
-                        ? (autoStartFocus) =>
-                            _save(ref, value.copyWith(autoStartFocus: autoStartFocus))
+                        ? (autoStartFocus) => _save(
+                            ref, value.copyWith(autoStartFocus: autoStartFocus))
                         : null,
                   ),
                 ],
@@ -189,8 +244,8 @@ class _InvitationCard extends ConsumerWidget {
       child: ListTile(
         leading: const Icon(Icons.card_giftcard_outlined),
         title: const Text('Generate invitation code'),
-        subtitle:
-            const Text('Admin-only codes let another person create an account.'),
+        subtitle: const Text(
+            'Admin-only codes let another person create an account.'),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => _showInvitation(context, ref, accountId!),
       ),
@@ -223,7 +278,8 @@ class _InvitationCard extends ConsumerWidget {
       );
     } catch (error) {
       messenger.showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', ''))),
       );
     }
   }
