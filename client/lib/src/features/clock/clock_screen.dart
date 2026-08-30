@@ -37,6 +37,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   bool _dragActive = false;
   bool _dragMoved = false;
   bool _editorOpen = false;
+  bool _selectionDialogOpen = false;
   Offset? _dragStart;
   bool _dragOuter = false;
   double? _dragStartAngle;
@@ -81,8 +82,6 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       ...blocks,
       if (liveBlock != null) liveBlock,
     ];
-    final showSelection = _selectedIds.isNotEmpty && !_dragActive;
-
     return Scaffold(
       appBar: AppBar(
         title: Text(_isToday(_selectedDay)
@@ -107,23 +106,13 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
           ),
         ],
       ),
-      floatingActionButtonLocation: showSelection
-          ? FloatingActionButtonLocation.centerFloat
-          : FloatingActionButtonLocation.endFloat,
-      floatingActionButton: showSelection
-          ? ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: math.max(0, MediaQuery.sizeOf(context).width - 24),
-              ),
-              child: _selectionBar(context),
+      floatingActionButton: !_dragActive
+          ? FloatingActionButton.extended(
+              onPressed: () => _addBlock(account.id),
+              icon: const Icon(Icons.add),
+              label: const Text('New event'),
             )
-          : !_dragActive
-              ? FloatingActionButton.extended(
-                  onPressed: () => _addBlock(account.id),
-                  icon: const Icon(Icons.add),
-                  label: const Text('New event'),
-                )
-              : null,
+          : null,
       body: _dialArea(account.id, _displayBlocks, activities),
     );
   }
@@ -410,6 +399,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   }
 
   void _onPanEnd() {
+    final shouldOpenActions = _selectedIds.isNotEmpty;
     _dragStart = null;
     _dragStartAngle = null;
     _lastDragAngle = null;
@@ -418,6 +408,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     _dragActive = false;
     _dragMoved = false;
     setState(() {});
+    if (shouldOpenActions) _showSelectionDialog();
   }
 
   void _onPointerCancel() {
@@ -546,61 +537,78 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     }
   }
 
-  Widget _selectionBar(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerHigh,
-      elevation: 8,
-      shadowColor: Colors.black54,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Row(
+  Future<void> _showSelectionDialog() async {
+    if (_selectionDialogOpen || _selectedIds.isEmpty || !mounted) return;
+    _selectionDialogOpen = true;
+    final action = await showDialog<String>(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (dialogContext) {
+        final count = _selectedIds.length;
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.check_circle_outline,
-                      size: 18, color: scheme.primary),
-                  const SizedBox(width: 8),
-                  Text(
-                    _selectedIds.length == 1
-                        ? '1 segment selected'
-                        : '${_selectedIds.length} segments selected',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle_outline,
+                          color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          count == 1
+                              ? '1 segment selected'
+                              : '$count segments selected',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  if (count == 1) ...[
+                    FilledButton.icon(
+                      onPressed: () => Navigator.pop(dialogContext, 'edit'),
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Edit segment'),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  FilledButton.icon(
+                    onPressed: () => Navigator.pop(dialogContext, 'delete'),
+                    icon: const Icon(Icons.delete_outline),
+                    label: Text(count == 1
+                        ? 'Delete segment'
+                        : 'Delete all $count segments'),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(dialogContext, 'clear'),
+                    child: const Text('Clear selection'),
                   ),
                 ],
               ),
-              if (_selectedIds.length == 1)
-                FilledButton.icon(
-                  onPressed: _editSelection,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Edit'),
-                ),
-              FilledButton.icon(
-                onPressed: _deleteSelection,
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Delete'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _clearSelection,
-                icon: const Icon(Icons.close),
-                label: const Text('Clear'),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
+    _selectionDialogOpen = false;
+    if (!mounted) return;
+    switch (action) {
+      case 'edit':
+        await _editSelection();
+      case 'delete':
+        await _deleteSelection();
+      case 'clear':
+      case null:
+        _clearSelection();
+    }
   }
 
   // --- Geometry helpers ----------------------------------------------------
