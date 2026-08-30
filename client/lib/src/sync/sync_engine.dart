@@ -103,15 +103,19 @@ class SyncEngine {
       throw StateError('No authenticated session');
     }
     final sinceText = await _repository.cursor(accountId);
+    // Cursors written by pre-revision clients were wall-clock timestamps and
+    // are unsafe when device clocks differ. Ignore one legacy cursor so the
+    // server can return the complete Clock history and issue an r:<n> cursor.
+    final since = sinceText?.startsWith('r:') == true ? sinceText : null;
     final local = await _repository.localDelta(accountId);
     Map<String, dynamic> response;
     try {
-      response = await _request(sinceText, local);
+      response = await _request(since, local);
     } on ApiException catch (error) {
       if (error.statusCode != 401) rethrow;
       _client.accessToken = null;
       if (!await _authRepository.ensureAccessToken(accountId)) rethrow;
-      response = await _request(sinceText, local);
+      response = await _request(since, local);
     }
     await _repository.applyServer(
       SyncBundle(
