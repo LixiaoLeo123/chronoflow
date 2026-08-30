@@ -154,6 +154,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                         dragOuter: _dragOuter,
                         dragStartAngle: _dragStartAngle,
                         dragEndAngle: _dragEndAngle,
+                        selectedDay: _selectedDay,
                         darkMode: darkMode,
                         repaint: _repaint,
                       ),
@@ -861,6 +862,7 @@ class _ClockPainter extends CustomPainter {
     this.dragStartAngle,
     this.dragEndAngle = 0,
     required this.darkMode,
+    required this.selectedDay,
     super.repaint,
   });
 
@@ -873,6 +875,7 @@ class _ClockPainter extends CustomPainter {
   final double? dragStartAngle;
   final double dragEndAngle;
   final bool darkMode;
+  final DateTime selectedDay;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1040,8 +1043,13 @@ class _ClockPainter extends CustomPainter {
 
   void _strokeSegments(Canvas canvas, Offset center, double innerRadius,
       double outerRadius, TimeBlock block, Paint paint) {
-    var cursor = block.start.toLocal();
-    final end = block.end.toLocal();
+    final dayEnd = selectedDay.add(const Duration(days: 1));
+    var cursor = block.start.toLocal().isAfter(selectedDay)
+        ? block.start.toLocal()
+        : selectedDay;
+    final blockEnd = block.end.toLocal();
+    final end = blockEnd.isBefore(dayEnd) ? blockEnd : dayEnd;
+    if (!end.isAfter(cursor)) return;
     while (cursor.isBefore(end)) {
       final nextMidnight = DateTime(cursor.year, cursor.month, cursor.day + 1);
       final segmentEnd = nextMidnight.isBefore(end) ? nextMidnight : end;
@@ -1103,5 +1111,6 @@ class _ClockPainter extends CustomPainter {
       oldDelegate.dragStartAngle != dragStartAngle ||
       oldDelegate.dragEndAngle != dragEndAngle ||
       oldDelegate.dragOuter != dragOuter ||
+      oldDelegate.selectedDay != selectedDay ||
       oldDelegate.darkMode != darkMode;
 }
