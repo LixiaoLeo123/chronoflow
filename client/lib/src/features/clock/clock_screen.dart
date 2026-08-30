@@ -546,10 +546,10 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       builder: (overlayContext) => Stack(
         fit: StackFit.expand,
         children: [
-          ModalBarrier(
-            color: Colors.transparent,
-            dismissible: true,
-            onDismiss: () => _closeSelectionPopup(clear: true),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _closeSelectionPopup(clear: true),
+            child: const SizedBox.expand(),
           ),
           Center(child: _selectionPopup(overlayContext)),
         ],
