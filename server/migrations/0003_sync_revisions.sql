@@ -1,6 +1,11 @@
 ALTER TABLE activities ADD COLUMN sync_revision INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE time_blocks ADD COLUMN sync_revision INTEGER NOT NULL DEFAULT 0;
 
+UPDATE activities SET sync_revision = rowid WHERE sync_revision = 0;
+UPDATE time_blocks SET sync_revision =
+    (SELECT COALESCE(MAX(sync_revision), 0) FROM activities) + rowid
+WHERE sync_revision = 0;
+
 CREATE TABLE sync_sequence (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     value INTEGER NOT NULL DEFAULT 0
