@@ -107,12 +107,12 @@ class SyncEngine {
         accountId, sinceText == null ? null : DateTime.parse(sinceText));
     Map<String, dynamic> response;
     try {
-      response = await _request(accountId, sinceText, local);
+      response = await _request(local);
     } on ApiException catch (error) {
       if (error.statusCode != 401) rethrow;
       _client.accessToken = null;
       if (!await _authRepository.ensureAccessToken(accountId)) rethrow;
-      response = await _request(accountId, sinceText, local);
+      response = await _request(local);
     }
     await _repository.applyServer(
       SyncBundle(
@@ -128,13 +128,13 @@ class SyncEngine {
     await _repository.saveCursor(accountId, response['syncCursor'] as String);
   }
 
-  Future<Map<String, dynamic>> _request(
-    String accountId,
-    String? sinceText,
-    SyncBundle local,
-  ) =>
+  Future<Map<String, dynamic>> _request(SyncBundle local) =>
       _client.sync({
-        'since': sinceText,
+        // Always request the complete server snapshot. A device can have a
+        // clock ahead of the server (or have missed an earlier response), in
+        // which case an incremental cursor would permanently hide older rows.
+        // The payload is small and this guarantees both devices converge.
+        'since': null,
         'activities': local.activities.map((item) => item.toJson()).toList(),
         'timeBlocks': local.blocks.map((item) => item.toJson()).toList(),
       });
