@@ -107,43 +107,24 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
           ),
         ],
       ),
-      floatingActionButton: !showSelection && !_dragActive
-          ? FloatingActionButton.extended(
-              onPressed: () => _addBlock(account.id),
-              icon: const Icon(Icons.add),
-              label: const Text('New event'),
-            )
-          : null,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          _dialArea(account.id, _displayBlocks, activities),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: SafeArea(
-              top: false,
-              child: IgnorePointer(
-                ignoring: !showSelection,
-                child: ExcludeSemantics(
-                  excluding: !showSelection,
-                  child: AnimatedSlide(
-                    offset: showSelection ? Offset.zero : const Offset(0, 1.2),
-                    duration: const Duration(milliseconds: 240),
-                    curve: Curves.easeOutCubic,
-                    child: AnimatedOpacity(
-                      opacity: showSelection ? 1 : 0,
-                      duration: const Duration(milliseconds: 180),
-                      child: _selectionBar(context),
-                    ),
-                  ),
-                ),
+      floatingActionButtonLocation: showSelection
+          ? FloatingActionButtonLocation.centerFloat
+          : FloatingActionButtonLocation.endFloat,
+      floatingActionButton: showSelection
+          ? ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: math.max(0, MediaQuery.sizeOf(context).width - 24),
               ),
-            ),
-          ),
-        ],
-      ),
+              child: _selectionBar(context),
+            )
+          : !_dragActive
+              ? FloatingActionButton.extended(
+                  onPressed: () => _addBlock(account.id),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New event'),
+                )
+              : null,
+      body: _dialArea(account.id, _displayBlocks, activities),
     );
   }
 
@@ -187,7 +168,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
                           dragOuter: _dragOuter,
                           dragStartAngle: _dragStartAngle,
                           dragEndAngle: _dragEndAngle,
-                          showDragRange: _dragMoved,
+                          showDragRange:
+                              _dragMoved && _dragDir != 0 && _sweptMax > 0.001,
                           selectedDay: _selectedDay,
                           darkMode: darkMode,
                           revision: revision,
@@ -375,8 +357,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     _dragMoved = false;
     _dragDir = 0;
     _sweptMax = 0;
-    _dragEndAngle = 0;
     _dragStartAngle = _dialAngleAt(position);
+    _dragEndAngle = _dragStartAngle ?? 0;
     _dragOuter = _isOuterAt(position);
     _lastDragAngle = _dragStartAngle;
     _selectedIds = {};
