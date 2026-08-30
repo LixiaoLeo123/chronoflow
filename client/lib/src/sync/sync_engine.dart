@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import '../api/api_client.dart';
 import '../repositories/auth_repository.dart';
@@ -13,9 +14,10 @@ class SyncCoordinator {
   StreamSubscription<dynamic>? _connectivity;
   Timer? _debounce;
   Timer? _periodic;
-  bool _syncing = false;
   String? _account;
   String? _fingerprint;
+  Future<bool>? _activeSync;
+  String? lastError;
 
   Future<void> start({
     required String accountId,
@@ -51,21 +53,41 @@ class SyncCoordinator {
   }
 
   Future<bool> synchronize({bool force = false}) async {
-    final account = _account;
-    if (account == null || _syncing) return false;
+    return synchronizeFor(_account, force: force);
+  }
+
+  /// Runs a manual sync for [accountId], even if the shell has not finished
+  /// starting its background coordinator yet. If another sync is in flight,
+  /// wait for it instead of reporting a false failure to the settings page.
+  Future<bool> synchronizeFor(String? accountId, {bool force = false}) async {
+    final account = accountId;
+    if (account == null) return false;
+    final active = _activeSync;
+    if (active != null) return active;
+    final future = _runSync(account, force: force);
+    _activeSync = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_activeSync, future)) _activeSync = null;
+    }
+  }
+
+  Future<bool> _runSync(String account, {required bool force}) async {
     final before = await _engine._repository.fingerprint(account);
     if (!force && before == _fingerprint && _fingerprint != null) return true;
-    _syncing = true;
     try {
       await _engine.synchronize(account);
       _fingerprint = await _engine._repository.fingerprint(account);
+      lastError = null;
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
       _fingerprint = null;
+      lastError = error.toString();
+      developer.log('Synchronize failed',
+          name: 'chronoflow.sync', error: error, stackTrace: stackTrace);
       return false;
-    } finally {
-      _syncing = false;
-    }
+    } finally {}
   }
 }
 

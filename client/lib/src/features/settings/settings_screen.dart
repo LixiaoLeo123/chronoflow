@@ -105,12 +105,16 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
       _syncing = true;
       _message = null;
     });
-    final success =
-        await ref.read(syncCoordinatorProvider).synchronize(force: true);
+    final success = await ref
+        .read(syncCoordinatorProvider)
+        .synchronizeFor(widget.accountId, force: true);
     if (!mounted) return;
+    final coordinator = ref.read(syncCoordinatorProvider);
     setState(() {
       _syncing = false;
-      _message = success ? 'Synced just now' : 'Sync failed; try again later';
+      _message = success
+          ? 'Synced just now'
+          : 'Sync failed: ${coordinator.lastError ?? 'try again later'}';
     });
   }
 
