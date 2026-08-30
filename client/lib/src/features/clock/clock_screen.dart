@@ -38,6 +38,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   bool _dragMoved = false;
   bool _editorOpen = false;
   bool _selectionDialogOpen = false;
+  OverlayEntry? _selectionOverlay;
   Offset? _dragStart;
   bool _dragOuter = false;
   double? _dragStartAngle;
@@ -58,6 +59,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
 
   @override
   void dispose() {
+    _selectionOverlay?.remove();
     _growController.dispose();
     _repaint.dispose();
     super.dispose();
@@ -537,83 +539,101 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     }
   }
 
-  Future<void> _showSelectionDialog() async {
+  void _showSelectionDialog() {
     if (_selectionDialogOpen || _selectedIds.isEmpty || !mounted) return;
     _selectionDialogOpen = true;
-    final action = await showDialog<String>(
-      context: context,
-      useRootNavigator: true,
-      barrierColor: Colors.black26,
-      builder: (dialogContext) {
-        final count = _selectedIds.length;
-        final scheme = Theme.of(dialogContext).colorScheme;
-        return Dialog(
-          backgroundColor: scheme.surface,
-          surfaceTintColor: scheme.surfaceTint,
-          elevation: 24,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 380),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+    final entry = OverlayEntry(
+      builder: (overlayContext) => Stack(
+        fit: StackFit.expand,
+        children: [
+          ModalBarrier(
+            color: Colors.transparent,
+            dismissible: true,
+            onDismiss: () => _closeSelectionPopup(clear: true),
+          ),
+          Center(child: _selectionPopup(overlayContext)),
+        ],
+      ),
+    );
+    _selectionOverlay = entry;
+    Overlay.of(context, rootOverlay: true).insert(entry);
+  }
+
+  Widget _selectionPopup(BuildContext popupContext) {
+    final count = _selectedIds.length;
+    final scheme = Theme.of(popupContext).colorScheme;
+    void choose(String action) {
+      _closeSelectionPopup(clear: false);
+      switch (action) {
+        case 'edit':
+          _editSelection();
+        case 'delete':
+          _deleteSelection();
+        case 'clear':
+          _clearSelection();
+      }
+    }
+
+    return Dialog(
+      backgroundColor: scheme.surface,
+      surfaceTintColor: scheme.surfaceTint,
+      elevation: 24,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.check_circle_outline,
-                          color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          count == 1
-                              ? '1 segment selected'
-                              : '$count segments selected',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  if (count == 1) ...[
-                    FilledButton.icon(
-                      onPressed: () => Navigator.pop(dialogContext, 'edit'),
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('Edit segment'),
+                  Icon(Icons.check_circle_outline, color: scheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      count == 1
+                          ? '1 segment selected'
+                          : '$count segments selected',
+                      style: Theme.of(popupContext).textTheme.titleMedium,
                     ),
-                    const SizedBox(height: 10),
-                  ],
-                  FilledButton.icon(
-                    onPressed: () => Navigator.pop(dialogContext, 'delete'),
-                    icon: const Icon(Icons.delete_outline),
-                    label: Text(count == 1
-                        ? 'Delete segment'
-                        : 'Delete all $count segments'),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton(
-                    onPressed: () => Navigator.pop(dialogContext, 'clear'),
-                    child: const Text('Clear selection'),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 20),
+              if (count == 1) ...[
+                FilledButton.icon(
+                  onPressed: () => choose('edit'),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Edit segment'),
+                ),
+                const SizedBox(height: 10),
+              ],
+              FilledButton.icon(
+                onPressed: () => choose('delete'),
+                icon: const Icon(Icons.delete_outline),
+                label: Text(count == 1
+                    ? 'Delete segment'
+                    : 'Delete all $count segments'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: () => choose('clear'),
+                child: const Text('Clear selection'),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
+  }
+
+  void _closeSelectionPopup({required bool clear}) {
+    _selectionOverlay?.remove();
+    _selectionOverlay = null;
     _selectionDialogOpen = false;
-    if (!mounted) return;
-    switch (action) {
-      case 'edit':
-        await _editSelection();
-      case 'delete':
-        await _deleteSelection();
-      case 'clear':
-      case null:
-        _clearSelection();
-    }
+    if (clear && mounted) _clearSelection();
   }
 
   // --- Geometry helpers ----------------------------------------------------
