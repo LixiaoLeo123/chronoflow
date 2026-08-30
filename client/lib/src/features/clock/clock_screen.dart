@@ -1,8 +1,10 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../models/domain.dart';
@@ -28,6 +30,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   /// Set during [build] so gesture handlers can reuse the current blocks.
   List<TimeBlock> _displayBlocks = const [];
   String? _hoveredId;
+  DateTime _selectedDay = _dateOnly(DateTime.now());
 
   bool _selectMode = false;
   bool _dragActive = false;
@@ -35,6 +38,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   Offset? _dragCurrent;
   bool _dragOuter = false;
   double? _dragStartAngle;
+  double? _lastDragAngle;
   double _dragEndAngle = 0;
   int _dragDir = 0;
   double _sweptMax = 0;
@@ -57,9 +61,12 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     final blocks =
         (ref.watch(timeBlocksProvider(account.id)).value ?? const <TimeBlock>[])
             .where((block) => !block.deleted)
+            .where((block) => _blockTouchesDay(block, _selectedDay))
             .toList();
     final timer = ref.watch(pomodoroProvider(account.id));
-    final liveBlock = _liveBlock(timer, account.id, activities);
+    final liveBlock = _isToday(_selectedDay)
+        ? _liveBlock(timer, account.id, activities)
+        : null;
     _displayBlocks = [
       ...blocks,
       if (liveBlock != null) liveBlock,
@@ -67,8 +74,25 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('24-hour clock'),
+        title: Text(_isToday(_selectedDay)
+            ? '24-hour clock'
+            : 'Clock · ${DateFormat('MMM d, y').format(_selectedDay)}'),
         actions: [
+          if (!_isToday(_selectedDay))
+            IconButton(
+              tooltip: 'Jump to today',
+              icon: const Icon(Icons.today_outlined),
+              onPressed: () => setState(() {
+                _selectedDay = _dateOnly(DateTime.now());
+                _hoveredId = null;
+                _selectedIds = {};
+              }),
+            ),
+          IconButton(
+            tooltip: 'Choose date',
+            icon: const Icon(Icons.calendar_month_outlined),
+            onPressed: _pickDay,
+          ),
           IconButton(
             tooltip: _selectMode ? 'Stop selecting' : 'Select segments',
             icon: Icon(_selectMode ? Icons.close : Icons.select_all),
@@ -93,8 +117,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     );
   }
 
-  Widget _dialArea(String accountId, List<TimeBlock> blocks,
-      List<Activity> activities) {
+  Widget _dialArea(
+      String accountId, List<TimeBlock> blocks, List<Activity> activities) {
     final darkMode = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -107,34 +131,104 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
             child: MouseRegion(
               onHover: (event) => _onHover(event.localPosition, blocks),
               onExit: (_) => _onHoverExit(),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapUp: (details) =>
-                    _openBlockAt(details.localPosition, blocks),
-                onPanStart: _onPanStart,
-                onPanUpdate: _onPanUpdate,
-                onPanEnd: (_) => _onPanEnd(),
-                onPanCancel: _onPanEnd,
-                child: CustomPaint(
-                  key: _clockKey,
-                  painter: _ClockPainter(
-                    blocks: blocks,
-                    activities: activities,
-                    highlightedId: _hoveredId,
-                    selectedIds: _selectedIds,
-                    grow: _grow,
-                    dragOuter: _dragOuter,
-                    dragStartAngle: _dragStartAngle,
-                    dragEndAngle: _dragEndAngle,
-                    darkMode: darkMode,
-                    repaint: _repaint,
+              child: Stack(
+                alignment: Alignment.center,
+                fit: StackFit.expand,
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapUp: (details) =>
+                        _openBlockAt(details.localPosition, blocks),
+                    onPanStart: _onPanStart,
+                    onPanUpdate: _onPanUpdate,
+                    onPanEnd: (_) => _onPanEnd(),
+                    onPanCancel: _onPanEnd,
+                    child: CustomPaint(
+                      key: _clockKey,
+                      painter: _ClockPainter(
+                        blocks: blocks,
+                        activities: activities,
+                        highlightedId: _hoveredId,
+                        selectedIds: _selectedIds,
+                        grow: _grow,
+                        dragOuter: _dragOuter,
+                        dragStartAngle: _dragStartAngle,
+                        dragEndAngle: _dragEndAngle,
+                        darkMode: darkMode,
+                        repaint: _repaint,
+                      ),
+                    ),
                   ),
-                ),
+                  IgnorePointer(child: _hoverLabel(activities, blocks)),
+                ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _hoverLabel(List<Activity> activities, List<TimeBlock> blocks) {
+    final block = _hoveredId == null
+        ? null
+        : blocks.where((item) => item.id == _hoveredId).firstOrNull;
+    final activity = block == null
+        ? null
+        : activities.where((item) => item.id == block.activityId).firstOrNull;
+    final label = activity?.name ??
+        (block == null
+            ? null
+            : switch (block.kind) {
+                BlockKind.focus => 'Focus',
+                BlockKind.shortBreak => 'Short break',
+                BlockKind.longBreak => 'Long break',
+              });
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      reverseDuration: const Duration(milliseconds: 180),
+      switchInCurve: Curves.easeOutBack,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(scale: animation, child: child),
+      ),
+      child: label == null
+          ? const SizedBox(key: ValueKey('empty'))
+          : DecoratedBox(
+              key: ValueKey(label),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surface
+                    .withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.45),
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33000000),
+                    blurRadius: 18,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                child: Text(
+                  label,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
     );
   }
 
@@ -151,8 +245,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     if (startedAt == null) return null;
     final activityId = timer.activityId;
     if (activityId == null) return null;
-    if (!activities
-        .any((item) => item.id == activityId && !item.deleted && !item.archived)) {
+    if (!activities.any(
+        (item) => item.id == activityId && !item.deleted && !item.archived)) {
       return null;
     }
     final controller = ref.read(pomodoroProvider(accountId).notifier);
@@ -201,9 +295,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       if ((next - value).abs() > 0.004) settling = false;
       _grow[key] = next;
     }
-    final stale = _grow.keys
-        .where((id) => !targets.containsKey(id))
-        .toList();
+    final stale = _grow.keys.where((id) => !targets.containsKey(id)).toList();
     for (final id in stale) {
       final next = (_grow[id] ?? 0.0) * 0.75;
       if (next.abs() < 0.004) {
@@ -224,6 +316,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   // --- Pointer handling ----------------------------------------------------
 
   void _onHover(Offset position, List<TimeBlock> blocks) {
+    if (_dragActive) return;
     final id = _blockAt(position, blocks)?.id;
     if (id != _hoveredId) {
       setState(() => _hoveredId = id);
@@ -246,6 +339,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     _dragEndAngle = 0;
     _dragStartAngle = _dialAngleAt(details.localPosition);
     _dragOuter = _isOuterAt(details.localPosition);
+    _lastDragAngle = _dragStartAngle;
     _dragWatch
       ..reset()
       ..start();
@@ -263,21 +357,22 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     if (startAngle == null) return;
     final currentAngle = _dialAngleAt(details.localPosition);
     if (currentAngle == null) return;
-    var delta = currentAngle - startAngle;
+    final previousAngle = _lastDragAngle ?? startAngle;
+    var delta = currentAngle - previousAngle;
     while (delta > math.pi) {
       delta -= 2 * math.pi;
     }
     while (delta < -math.pi) {
       delta += 2 * math.pi;
     }
-    // Lock the sweep direction on the first meaningful movement, then keep the
-    // arc on that side of the starting point (wrap-safe).
+    _lastDragAngle = currentAngle;
+    // Lock the initial direction, then keep a continuous, reversible sweep.
     if (_dragDir == 0 && delta.abs() > 0.03) {
       _dragDir = delta > 0 ? 1 : -1;
     }
     if (_dragDir != 0) {
-      final progress = _dragDir * delta;
-      if (progress > _sweptMax) _sweptMax = progress;
+      _sweptMax =
+          (_sweptMax + _dragDir * delta).clamp(0.0, 2 * math.pi).toDouble();
       _dragEndAngle = startAngle + _dragDir * _sweptMax;
     }
     setState(() {
@@ -292,6 +387,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     _dragStart = null;
     _dragCurrent = null;
     _dragStartAngle = null;
+    _lastDragAngle = null;
     _dragEndAngle = 0;
     _sweptMax = 0;
     _dragWatch.stop();
@@ -336,8 +432,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     final blocks =
         (ref.read(timeBlocksProvider(account.id)).value ?? const <TimeBlock>[])
             .where((block) => !block.deleted);
-    final now = DateTime.now();
-    final dayStart = DateTime(now.year, now.month, now.day);
+    final dayStart = _selectedDay;
     final selected = <String>{};
     for (final block in blocks) {
       if (block.id == _liveBlockId) continue;
@@ -359,7 +454,9 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     final ringEnd = ringStart.add(const Duration(hours: 12));
     final s = block.start.toLocal();
     final e = block.end.toLocal();
-    if (!e.isAfter(s) || e.isBefore(ringStart) || s.isAfter(ringEnd)) return null;
+    if (!e.isAfter(s) || e.isBefore(ringStart) || s.isAfter(ringEnd)) {
+      return null;
+    }
     final a = s.isAfter(ringStart) ? s : ringStart;
     final b = e.isBefore(ringEnd) ? e : ringEnd;
     if (!b.isAfter(a)) return null;
@@ -429,7 +526,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
 
   /// The dial size and metrics from the painted ring.
   ({Size size, Offset center, double outer, double inner})? _metrics() {
-    final renderBox = _clockKey.currentContext?.findRenderObject() as RenderBox?;
+    final renderBox =
+        _clockKey.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox == null) return null;
     final size = renderBox.size;
     final outer = size.shortestSide / 2 - 8;
@@ -458,53 +556,65 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
     return d > (m.inner + m.outer) / 2;
   }
 
-  /// Maps a dial position to a wall-clock time today, or null when the position
-  /// is not inside the ring band.
-  DateTime? _timeAt(Offset position) {
-    final m = _metrics();
-    if (m == null) return null;
-    final band = m.outer - m.inner;
-    final stroke = band * 0.34;
-    final distance = (position - m.center).distance;
-    if (distance > m.outer + stroke + 14 ||
-        distance < m.inner - stroke - 14) {
-      return null;
-    }
-    final isOuter = distance > (m.inner + m.outer) / 2;
-    final angle = _dialAngleAt(position);
-    if (angle == null) return null;
-    final fraction = angle / (2 * math.pi);
-    final hour = (isOuter ? 12 : 0) + fraction * 12;
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day).add(
-      Duration(milliseconds: (hour * Duration.millisecondsPerHour).round()),
-    );
-  }
-
   /// Finds the block whose arc covers the tapped spot, with a small tolerance
   /// so thin or short segments respond reliably.
   TimeBlock? _blockAt(Offset position, List<TimeBlock> blocks) {
-    final tapped = _timeAt(position);
-    if (tapped == null) return null;
-    TimeBlock? nearest;
-    Duration? nearestGap;
-    for (final block in blocks) {
-      final start = block.start.toLocal();
-      final end = block.end.toLocal();
-      if (end.isBefore(start)) continue;
-      if (!tapped.isBefore(start) && tapped.isBefore(end)) return block;
-      final gap = tapped.isBefore(start)
-          ? start.difference(tapped)
-          : tapped.difference(end);
-      if (nearestGap == null || gap < nearestGap) {
-        nearestGap = gap;
-        nearest = block;
-      }
-    }
-    if (nearestGap == null || nearestGap > const Duration(minutes: 3)) {
+    final m = _metrics();
+    if (m == null) return null;
+    final distance = (position - m.center).distance;
+    final band = m.outer - m.inner;
+    final stroke = band * 0.34;
+    if (distance < m.inner - stroke - 16 || distance > m.outer + stroke + 16) {
       return null;
     }
-    return nearest;
+    final outer = distance > (m.inner + m.outer) / 2;
+    final angle = _dialAngleAt(position);
+    if (angle == null) return null;
+    final tolerance = math.max(
+      0.02,
+      (stroke / 2 + 12) / (outer ? m.outer : m.inner),
+    );
+    final dayStart = _selectedDay;
+    for (final block in blocks) {
+      final arc = _blockArcOnRing(block, outer, dayStart);
+      if (arc == null) continue;
+      for (final k in [-1, 0, 1]) {
+        final offset = k * 2 * math.pi;
+        if (angle >= arc.start + offset - tolerance &&
+            angle <= arc.end + offset + tolerance) {
+          return block;
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> _pickDay() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDay,
+      firstDate: DateTime(_selectedDay.year - 5),
+      lastDate: DateTime(_selectedDay.year + 5),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _selectedDay = _dateOnly(picked);
+      _hoveredId = null;
+      _selectedIds = {};
+    });
+    _ensureGrowTicker();
+  }
+
+  bool _isToday(DateTime day) {
+    final now = DateTime.now();
+    return now.year == day.year && now.month == day.month && now.day == day.day;
+  }
+
+  bool _blockTouchesDay(TimeBlock block, DateTime day) {
+    final end = day.add(const Duration(days: 1));
+    final start = block.start.toLocal();
+    final finish = block.end.toLocal();
+    return finish.isAfter(day) && start.isBefore(end);
   }
 
   // --- Editors -------------------------------------------------------------
@@ -516,7 +626,8 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       await _showLiveEditor(account.id);
       return;
     }
-    await _showBlockEditor(context: context, accountId: account.id, block: block);
+    await _showBlockEditor(
+        context: context, accountId: account.id, block: block);
   }
 
   Future<void> _addBlock(String accountId) =>
@@ -577,7 +688,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
         (ref.read(activitiesProvider(accountId)).value ?? const <Activity>[])
             .where((item) => !item.deleted)
             .toList();
-    var start = block?.start.toLocal() ?? _defaultStart();
+    var start = block?.start.toLocal() ?? _defaultStart(_selectedDay);
     var end = block?.end.toLocal() ?? start.add(const Duration(minutes: 25));
     var activityId = block?.activityId ?? activities.firstOrNull?.id ?? '';
     var kind = block?.kind ?? BlockKind.focus;
@@ -727,10 +838,17 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
 
 int _minuteOfDay(DateTime value) => value.hour * 60 + value.minute;
 
-DateTime _defaultStart() {
+DateTime _defaultStart(DateTime day) {
   final now = DateTime.now();
+  if (!_sameDay(day, now)) return DateTime(day.year, day.month, day.day, 9);
   return DateTime(now.year, now.month, now.day, now.hour + 1);
 }
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
+
+bool _sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
 
 class _ClockPainter extends CustomPainter {
   const _ClockPainter({
@@ -771,7 +889,12 @@ class _ClockPainter extends CustomPainter {
       _drawDragRange(canvas, center, innerRadius, outerRadius, strokeWidth);
     }
 
-    for (final block in blocks) {
+    final ordered = [...blocks]..sort((a, b) {
+        final aRaised = a.id == highlightedId || selectedIds.contains(a.id);
+        final bRaised = b.id == highlightedId || selectedIds.contains(b.id);
+        return (aRaised ? 1 : 0).compareTo(bRaised ? 1 : 0);
+      });
+    for (final block in ordered) {
       _drawBlock(
         canvas,
         center,
@@ -824,15 +947,14 @@ class _ClockPainter extends CustomPainter {
     }
   }
 
-  void _drawLabels(Canvas canvas, Offset center, double innerRadius,
-      double outerRadius) {
+  void _drawLabels(
+      Canvas canvas, Offset center, double innerRadius, double outerRadius) {
     final band = outerRadius - innerRadius;
-    final labelPainter = TextPainter(textDirection: TextDirection.ltr);
+    final labelPainter = TextPainter(textDirection: ui.TextDirection.ltr);
     for (var hour = 0; hour < 24; hour += 2) {
       final angle = _hourAngle(hour);
-      final radius = hour < 12
-          ? innerRadius + band * 0.24
-          : innerRadius + band * 0.76;
+      final radius =
+          hour < 12 ? innerRadius + band * 0.24 : innerRadius + band * 0.76;
       final point = center + Offset(math.cos(angle), math.sin(angle)) * radius;
       labelPainter.text = TextSpan(
         text: hour.toString().padLeft(2, '0'),
@@ -879,8 +1001,29 @@ class _ClockPainter extends CustomPainter {
     required bool isLive,
   }) {
     final growValue = grow[block.id] ?? 0.0;
-    final width = (isLive ? strokeWidth + 2 : strokeWidth) +
-        strokeWidth * growValue * 0.9;
+    if (growValue > 0.001) {
+      // Scale the complete arc around the dial centre so its proportions stay
+      // intact. Increasing only strokeWidth makes a segment look stretched.
+      final scale = 1 + growValue * 0.12;
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.scale(scale);
+      canvas.translate(-center.dx, -center.dy);
+      _strokeSegments(
+        canvas,
+        center,
+        innerRadius,
+        outerRadius,
+        block,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = isLive ? strokeWidth + 2 : strokeWidth
+          ..strokeCap = StrokeCap.butt
+          ..color = color,
+      );
+      canvas.restore();
+      return;
+    }
     _strokeSegments(
       canvas,
       center,
@@ -889,7 +1032,7 @@ class _ClockPainter extends CustomPainter {
       block,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = width
+        ..strokeWidth = isLive ? strokeWidth + 2 : strokeWidth
         ..strokeCap = StrokeCap.butt
         ..color = color,
     );
@@ -915,10 +1058,10 @@ class _ClockPainter extends CustomPainter {
       final radius = inner ? innerRadius : outerRadius;
       final startAngle =
           _fractionOnRing(piece.$1, inner) * 2 * math.pi - math.pi / 2;
-      final sweep =
-          (_fractionOnRing(piece.$2, inner) - _fractionOnRing(piece.$1, inner)) *
-              2 *
-              math.pi;
+      final sweep = (_fractionOnRing(piece.$2, inner) -
+              _fractionOnRing(piece.$1, inner)) *
+          2 *
+          math.pi;
       if (sweep <= 0) continue;
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
