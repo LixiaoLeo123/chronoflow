@@ -28,6 +28,8 @@ class SessionTrayController with TrayListener {
   bool _lastRunning = false;
   int _lastPercent = -1;
   bool _dynamicFailed = false;
+  int _iconVersion = 0;
+  DateTime _lastIconWriteAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
@@ -64,23 +66,34 @@ class SessionTrayController with TrayListener {
         : (1 - state.remaining.inMilliseconds / full.inMilliseconds)
             .clamp(0.0, 1.0);
     final percent = (progress * 100).round();
+    final now = DateTime.now();
 
-    // Re-render the icon only when something visually meaningful changed, so
-    // the panel icon does not flicker on every second tick.
-    if (!_visible ||
-        _lastKind != state.kind ||
-        _lastRunning != state.running ||
-        _lastPercent != percent) {
-      _lastKind = state.kind;
-      _lastRunning = state.running;
-      _lastPercent = percent;
+    // A running timer re-renders the ring roughly every second so the mini
+    // clock tracks the progress; otherwise only redraw when something changed.
+    final stateChanged =
+        _lastKind != state.kind || _lastRunning != state.running;
+    final redraw =
+        !_visible ||
+        stateChanged ||
+        (state.running && _lastIconWriteAt.isBefore(now.subtract(const Duration(seconds: 1)))) ||
+        (!state.running && _lastPercent != percent);
+    _lastKind = state.kind;
+    _lastRunning = state.running;
+    _lastPercent = percent;
+
+    if (redraw) {
+      _lastIconWriteAt = now;
       try {
+        // Write each render to a fresh filename: the panel caches an icon
+        // path, so reusing the same path would keep showing the stale frame.
         final bytes = _dynamicFailed
             ? null
             : await _renderRing(state.kind, progress);
         if (bytes != null) {
-          final file = File('${Directory.systemTemp.path}/chronoflow_tray.png');
+          final file = File(
+              '${Directory.systemTemp.path}/chronoflow_tray_${_iconVersion++}.png');
           await file.writeAsBytes(bytes);
+          _sweepOldIcons(file.path);
           await trayManager.setIcon(file.path);
         } else {
           await trayManager.setIcon(_assetFor(state.kind));
@@ -111,6 +124,29 @@ class SessionTrayController with TrayListener {
           ? 'Chronoflow — ${_label(state.kind)} ${_remaining(state.remaining)}'
           : 'Chronoflow — paused ${_remaining(state.remaining)}',
     );
+  }
+
+  /// Keeps at most the three most recent tray frames in /tmp.
+  void _sweepOldIcons(String currentPath) {
+    try {
+      final existing = Directory(Directory.systemTemp.path)
+          .listSync()
+          .whereType<File>()
+          .where((file) =>
+              file.path.contains('chronoflow_tray_') &&
+              file.path.endsWith('.png') &&
+              file.path != currentPath)
+          .map((file) => file.path)
+          .toList()
+        ..sort();
+      if (existing.length > 2) {
+        for (final path in existing.take(existing.length - 2)) {
+          File(path).deleteSync();
+        }
+      }
+    } catch (_) {
+      // Cleanup is best effort.
+    }
   }
 
   Future<void> dispose() async {

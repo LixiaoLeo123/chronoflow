@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/domain.dart';
 import 'schema.dart';
@@ -200,10 +201,21 @@ class AppDatabase extends _$AppDatabase {
   Future<void> closeDatabase() => close();
 }
 
-LazyDatabase _open() =>
-    LazyDatabase(() async => NativeDatabase.createInBackground(
-          File(_databasePath()),
-        ));
+LazyDatabase _open() => LazyDatabase(() async {
+      // Android has no writable cwd; resolve the persistent app-support
+      // directory lazily (path_provider requires the binding + plugins).
+      final file = await _databaseFile();
+      await file.parent.create(recursive: true);
+      return NativeDatabase.createInBackground(file);
+    });
+
+Future<File> _databaseFile() async {
+  if (Platform.isAndroid) {
+    final dir = await getApplicationSupportDirectory();
+    return File('${dir.path}/chronoflow.sqlite');
+  }
+  return File(_databasePath());
+}
 
 String _databasePath() {
   if (Platform.isLinux) {
