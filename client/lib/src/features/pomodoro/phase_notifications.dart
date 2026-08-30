@@ -39,7 +39,9 @@ class PhaseNotifications {
       importance: Importance.high,
       priority: Priority.high,
     );
-    const linux = LinuxNotificationDetails();
+    const linux = LinuxNotificationDetails(
+      urgency: LinuxNotificationUrgency.critical,
+    );
     const title = 'Chronoflow';
     final body = '${_label(kind)} is starting — round $round';
     try {
