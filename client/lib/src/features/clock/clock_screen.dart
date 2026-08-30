@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -24,6 +25,7 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   final GlobalKey _clockKey = GlobalKey();
   final ValueNotifier<int> _repaint = ValueNotifier<int>(0);
   late final AnimationController _growController;
+  late final Timer _liveTicker;
   final Map<String, double> _grow = {};
   Map<String, double> _growFrom = {};
   Map<String, double> _growTo = {};
@@ -54,11 +56,17 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
       vsync: this,
       duration: const Duration(milliseconds: 260),
     )..addListener(_tickGrow);
+    // The timer stops emitting once a manual break is pending, but the open
+    // focus run must keep extending on the clock.
+    _liveTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _growController.dispose();
+    _liveTicker.cancel();
     _repaint.dispose();
     super.dispose();
   }
@@ -266,7 +274,10 @@ class _ClockScreenState extends ConsumerState<ClockScreen>
   /// there is no live arc while paused or on a break.
   TimeBlock? _liveBlock(
       PomodoroState timer, String accountId, List<Activity> activities) {
-    if (!timer.running || timer.kind != BlockKind.focus) return null;
+    if ((!timer.running && !timer.awaitingBreak) ||
+        timer.kind != BlockKind.focus) {
+      return null;
+    }
     final startedAt = timer.startedAt;
     if (startedAt == null) return null;
     final activityId = timer.activityId;

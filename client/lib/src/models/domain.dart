@@ -222,6 +222,11 @@ class PersistedTimerState {
 
   bool get isRunning => !paused && endsAt != null;
 
+  /// A focus timer that reached zero while automatic breaks were disabled is
+  /// persisted as paused with its open run still anchored.
+  bool get awaitingBreak =>
+      kind == BlockKind.focus && paused && remainingMs <= 0 && runStart != null;
+
   PersistedTimerState copyWith({
     String? activityId,
     BlockKind? kind,

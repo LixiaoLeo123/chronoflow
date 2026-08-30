@@ -23,10 +23,12 @@ class SyncCoordinator {
   }) async {
     await stop();
     _account = accountId;
-    _periodic =
-        Timer.periodic(const Duration(minutes: 15), (_) => synchronize());
+    // Pull remote edits while the app remains open. Local writes are still
+    // debounced below, while this keeps a second device from going stale.
+    _periodic = Timer.periodic(
+        const Duration(minutes: 1), (_) => synchronize(force: true));
     _connectivity = connectivity.listen((available) {
-      if (available) synchronize();
+      if (available) synchronize(force: true);
     });
     _changes = _engine._repository.changes().listen((_) => _debouncedSync());
     await synchronize();
@@ -42,6 +44,7 @@ class SyncCoordinator {
     _changes = null;
     _connectivity = null;
     _account = null;
+    _fingerprint = null;
   }
 
   void _debouncedSync() {
@@ -49,11 +52,11 @@ class SyncCoordinator {
     _debounce = Timer(const Duration(seconds: 2), synchronize);
   }
 
-  Future<void> synchronize() async {
+  Future<void> synchronize({bool force = false}) async {
     final account = _account;
     if (account == null || _syncing) return;
     final before = await _engine._repository.fingerprint(account);
-    if (before == _fingerprint && _fingerprint != null) return;
+    if (!force && before == _fingerprint && _fingerprint != null) return;
     _syncing = true;
     try {
       await _engine.synchronize(account);

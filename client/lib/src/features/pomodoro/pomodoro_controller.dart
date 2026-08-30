@@ -37,6 +37,12 @@ class PomodoroState {
   final String status;
   final DateTime? startedAt;
 
+  bool get awaitingBreak =>
+      kind == BlockKind.focus &&
+      !running &&
+      remaining <= Duration.zero &&
+      status == 'Focus complete - start break';
+
   PomodoroState copyWith({
     TimerSettings? settings,
     BlockKind? kind,
@@ -141,10 +147,11 @@ class PomodoroController extends StateNotifier<PomodoroState> {
         : persisted.endsAt!.difference(DateTime.now());
     // A session killed while running still has an open focus run. Paused
     // sessions have no open run (the run was already saved when it paused).
-    _runStart = persisted.isRunning &&
+    _runStart = (persisted.isRunning || persisted.awaitingBreak) &&
             persisted.kind == BlockKind.focus
         ? (persisted.runStart ?? persisted.startedAt)
         : null;
+    final awaitingBreak = persisted.awaitingBreak;
     state = PomodoroState(
       settings: settings,
       kind: persisted.kind,
@@ -152,10 +159,28 @@ class PomodoroController extends StateNotifier<PomodoroState> {
       phaseIndex: persisted.phaseIndex,
       remaining: remaining.isNegative ? Duration.zero : remaining,
       running: persisted.isRunning,
-      status: persisted.isRunning ? 'Running' : 'Paused',
+      status: awaitingBreak
+          ? 'Focus complete - start break'
+          : persisted.isRunning
+              ? 'Running'
+              : 'Paused',
       startedAt: persisted.startedAt,
     );
-    if (remaining.isNegative) await _complete();
+    if (remaining.isNegative &&
+        persisted.kind == BlockKind.focus &&
+        !settings.autoStartBreaks) {
+      // The process may have been suspended between the final tick and the
+      // persisted state update. Preserve the open focus run instead of
+      // silently starting a break during restore.
+      state = state.copyWith(
+        remaining: Duration.zero,
+        running: false,
+        status: 'Focus complete - start break',
+      );
+      await _persist();
+    } else if (remaining.isNegative) {
+      await _complete();
+    }
   }
 
   Future<void> selectActivity(String? activityId) async {
@@ -183,6 +208,10 @@ class PomodoroController extends StateNotifier<PomodoroState> {
 
   Future<void> start() async {
     if (state.running) return;
+    if (state.awaitingBreak) {
+      await startBreak();
+      return;
+    }
     if (state.kind == BlockKind.focus && state.activityId == null) {
       state = state.copyWith(status: 'Choose an activity first');
       return;
@@ -263,11 +292,41 @@ class PomodoroController extends StateNotifier<PomodoroState> {
     if (_disposed || !state.running) return;
     final remaining = state.remaining - const Duration(seconds: 1);
     if (remaining <= Duration.zero) {
+      if (state.kind == BlockKind.focus && !state.settings.autoStartBreaks) {
+        // Keep the focus run open until the user explicitly starts the break.
+        // Clock uses this state to continue recording overtime work.
+        state = state.copyWith(
+          remaining: Duration.zero,
+          running: false,
+          status: 'Focus complete - start break',
+        );
+        await _persist();
+        return;
+      }
       state = state.copyWith(remaining: Duration.zero, running: false);
       await _complete();
       return;
     }
     state = state.copyWith(remaining: remaining);
+  }
+
+  /// Ends an overtime focus run and starts the pending break immediately.
+  Future<void> startBreak() async {
+    if (!state.awaitingBreak) return;
+    await _finalizeRun(DateTime.now());
+    final nextIndex = state.phaseIndex + 1;
+    final nextKind = nextIndex % state.settings.roundsBeforeLongBreak == 0
+        ? BlockKind.longBreak
+        : BlockKind.shortBreak;
+    state = state.copyWith(
+      kind: nextKind,
+      phaseIndex: nextIndex,
+      remaining: state.settings.durationFor(nextKind),
+      startedAt: DateTime.now(),
+      running: true,
+      status: 'Running',
+    );
+    await _persist();
   }
 
   Future<void> _complete() async {
@@ -295,7 +354,8 @@ class PomodoroController extends StateNotifier<PomodoroState> {
           state.kind == BlockKind.focus ? 'Focus complete' : 'Break complete',
     );
     await _persist();
-    await notifications?.showPhase(nextKind, (nextIndex % state.settings.roundsBeforeLongBreak) + 1);
+    await notifications?.showPhase(
+        nextKind, (nextIndex % state.settings.roundsBeforeLongBreak) + 1);
     if (state.running) await start();
   }
 

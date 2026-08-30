@@ -31,21 +31,25 @@ class PomodoroScreen extends ConsumerWidget {
       ),
       items: [
         if (active.isEmpty)
-          const DropdownMenuItem(value: null, child: Text('Choose an activity')),
+          const DropdownMenuItem(
+              value: null, child: Text('Choose an activity')),
         for (final activity in active)
           DropdownMenuItem(
             value: activity.id,
             child: Row(
               children: [
-                CircleAvatar(
-                    radius: 7, backgroundColor: Color(activity.color)),
+                CircleAvatar(radius: 7, backgroundColor: Color(activity.color)),
                 const SizedBox(width: 8),
-                Expanded(child: Text(activity.name, overflow: TextOverflow.ellipsis)),
+                Expanded(
+                    child:
+                        Text(activity.name, overflow: TextOverflow.ellipsis)),
               ],
             ),
           ),
       ],
-      onChanged: active.isEmpty ? null : controller.selectActivity,
+      onChanged: active.isEmpty || timer.running || timer.awaitingBreak
+          ? null
+          : controller.selectActivity,
     );
 
     final controls = Wrap(
@@ -54,9 +58,17 @@ class PomodoroScreen extends ConsumerWidget {
       alignment: WrapAlignment.center,
       children: [
         FilledButton.icon(
-          onPressed: timer.running ? controller.pause : controller.start,
-          icon: Icon(timer.running ? Icons.pause : Icons.play_arrow),
-          label: Text(timer.running ? 'Pause' : 'Start'),
+          onPressed: timer.running && !timer.awaitingBreak
+              ? controller.pause
+              : controller.start,
+          icon: Icon(timer.running && !timer.awaitingBreak
+              ? Icons.pause
+              : Icons.play_arrow),
+          label: Text(timer.awaitingBreak
+              ? 'Start break'
+              : timer.running
+                  ? 'Pause'
+                  : 'Start'),
         ),
         OutlinedButton.icon(
           onPressed: controller.stop,
@@ -69,7 +81,7 @@ class PomodoroScreen extends ConsumerWidget {
     final roundSelector = _RoundSelector(
       roundCount: roundCount,
       currentRound: currentRound,
-      enabled: !timer.running,
+      enabled: !timer.running && !timer.awaitingBreak,
       onSelected: controller.selectRound,
     );
 
@@ -83,7 +95,8 @@ class PomodoroScreen extends ConsumerWidget {
               children: [
                 _TimerDial(state: timer),
                 const SizedBox(height: 12),
-                Text(timer.status, style: Theme.of(context).textTheme.bodyMedium),
+                Text(timer.status,
+                    style: Theme.of(context).textTheme.bodyMedium),
                 const SizedBox(height: 20),
                 controls,
               ],
@@ -104,7 +117,8 @@ class PomodoroScreen extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text('Session',
-                                  style: Theme.of(context).textTheme.titleLarge),
+                                  style:
+                                      Theme.of(context).textTheme.titleLarge),
                               const SizedBox(height: 20),
                               activitySelector,
                               const SizedBox(height: 24),
@@ -187,7 +201,8 @@ class _TimerDial extends StatelessWidget {
         Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_label(state.kind), style: Theme.of(context).textTheme.titleMedium),
+            Text(_label(state.kind),
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
               _remaining(state.remaining),
@@ -257,7 +272,8 @@ class _RoundSelector extends StatelessWidget {
                 children: [
                   for (var round = 1; round <= roundCount; round++) ...[
                     if (round > 1)
-                      _RoundConnector(active: round <= currentRound, color: color),
+                      _RoundConnector(
+                          active: round <= currentRound, color: color),
                     GestureDetector(
                       onTap: enabled ? () => onSelected(round) : null,
                       child: AnimatedContainer(

@@ -42,6 +42,21 @@ void main() {
         BlockKind.longBreak,
       );
     });
+
+    test('recognizes a focus waiting for a manually started break', () {
+      final state = PersistedTimerState(
+        activityId: 'writing',
+        kind: BlockKind.focus,
+        phaseIndex: 0,
+        startedAt: DateTime(2026, 8, 30, 9),
+        runStart: DateTime(2026, 8, 30, 9),
+        endsAt: null,
+        paused: true,
+        remainingMs: 0,
+        updatedAt: DateTime(2026, 8, 30, 9, 25),
+      );
+      expect(state.awaitingBreak, isTrue);
+    });
   });
 
   group('summary aggregation', () {

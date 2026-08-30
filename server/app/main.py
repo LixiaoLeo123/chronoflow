@@ -295,7 +295,11 @@ def sync(
         (account_id, since.isoformat()),
     ).fetchall()
 
-    cursor = iso_utc()
+    # A cursor represents the newest row actually observed in this response.
+    # Do not advance it to wall-clock "now" when there are no changes: a
+    # client whose clock is slightly behind the server could then skip its
+    # next local write because local deltas are filtered by this cursor.
+    cursor = since.isoformat() if request.since else iso_utc()
     if activity_rows or block_rows:
         timestamps = [
             rows[-1]["updated_at"]

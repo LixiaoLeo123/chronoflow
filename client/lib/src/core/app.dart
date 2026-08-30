@@ -103,7 +103,8 @@ class _ChronoflowShell extends ConsumerStatefulWidget {
   ConsumerState<_ChronoflowShell> createState() => _ChronoflowShellState();
 }
 
-class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
+class _ChronoflowShellState extends ConsumerState<_ChronoflowShell>
+    with WidgetsBindingObserver {
   String? _startedAccountId;
   bool _starting = false;
   final _tray = SessionTrayController();
@@ -111,7 +112,15 @@ class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncIfReady());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ref.read(syncCoordinatorProvider).synchronize(force: true));
+    }
   }
 
   Future<void> _syncIfReady() async {
@@ -194,6 +203,7 @@ class _ChronoflowShellState extends ConsumerState<_ChronoflowShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(ref.read(syncCoordinatorProvider).stop());
     unawaited(_tray.dispose());
     super.dispose();
